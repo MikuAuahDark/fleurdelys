@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import MagicMock
 from lsprotocol.types import SignatureHelpParams, TextDocumentIdentifier, Position
 from pygls.workspace import TextDocument, Workspace
-from cmake_ls.server import signature_help, CMakeLanguageServer
+from fleurdelys.server import signature_help, CMakeLanguageServer
 
 
 class TestSignatureHelp(unittest.TestCase):

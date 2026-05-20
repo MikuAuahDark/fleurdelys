@@ -1,4 +1,4 @@
-from cmake_ls.linting import lint_cmake
+from fleurdelys.linting import lint_cmake
 import sys
 import os
 

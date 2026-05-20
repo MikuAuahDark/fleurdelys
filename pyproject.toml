@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "cmake-ls"
+name = "fleurdelys"
 version = "0.1.0"
 description = "A lightweight CMake Language Server for DSL usage"
 readme = "README.md"
@@ -13,4 +13,4 @@ dependencies = [
 ]
 
 [project.scripts]
-cmake-ls = "cmake_ls.__main__:main"
+fleurdelys = "fleurdelys.__main__:main"

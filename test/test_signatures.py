@@ -1,4 +1,4 @@
-from cmake_ls.signatures import SignatureParser, SignatureMatcher
+from fleurdelys.signatures import SignatureParser, SignatureMatcher
 
 
 def test():

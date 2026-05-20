@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
-from cmake_ls.server import completions
+from fleurdelys.server import completions
 from lsprotocol.types import CompletionParams, TextDocumentIdentifier, Position
 
 
@@ -43,9 +43,7 @@ endfunction()
     missing = [e for e in expected if e not in items]
 
     if not missing:
-        print(
-            "SUCCESS: All expected implicit arguments and regular arguments found in completions."
-        )
+        print("SUCCESS: All expected implicit arguments and regular arguments found in completions.")
     else:
         print(f"FAILURE: Missing completions: {missing}")
 

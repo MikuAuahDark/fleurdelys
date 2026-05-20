@@ -4,8 +4,8 @@ import sys
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
-from cmake_ls.linting import lint_cmake
-from cmake_ls.utils import extract_definitions
+from fleurdelys.linting import lint_cmake
+from fleurdelys.utils import extract_definitions
 
 
 def test_meta_commands():

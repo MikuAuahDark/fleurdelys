@@ -4,7 +4,7 @@ import sys
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
-from cmake_ls.linting import lint_cmake
+from fleurdelys.linting import lint_cmake
 
 
 def verify_implicit_args():
@@ -38,17 +38,13 @@ message(STATUS "OUTSIDE ARGC: ${ARGC}")
     # Lines 10, 11, 12 (my_macro) - NO warnings
     # Line 17 (outside) - SHOULD warning "Variable 'ARGC' may be undefined."
 
-    warnings = [
-        d for d in diagnostics if "ARGC" in d.message and "undefined" in d.message
-    ]
+    warnings = [d for d in diagnostics if "ARGC" in d.message and "undefined" in d.message]
     if any(d.range.start.line == 16 for d in warnings):
         print("SUCCESS: ARGC correctly warned outside scope.")
     else:
         print("FAILURE: ARGC did not warn outside scope.")
 
-    internal_warnings = [
-        d for d in diagnostics if d.range.start.line in [2, 3, 4, 9, 10, 11]
-    ]
+    internal_warnings = [d for d in diagnostics if d.range.start.line in [2, 3, 4, 9, 10, 11]]
     if not internal_warnings:
         print("SUCCESS: No warnings inside function/macro for implicit args.")
     else:

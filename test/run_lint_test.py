@@ -4,7 +4,7 @@ import sys
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
-from cmake_ls.linting import lint_cmake
+from fleurdelys.linting import lint_cmake
 
 
 def test():

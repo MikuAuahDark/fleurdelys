@@ -7,9 +7,9 @@ from lsprotocol.types import (
 )
 
 
-from cmake_ls.constants import COMMAND_SPECS, BUILTIN_VARIABLES
-from cmake_ls.signatures import SignatureParser, SignatureMatcher
-from cmake_ls.utils import ScopeTracker, Definition
+from fleurdelys.constants import COMMAND_SPECS, BUILTIN_VARIABLES
+from fleurdelys.signatures import SignatureParser, SignatureMatcher
+from fleurdelys.utils import ScopeTracker, Definition
 
 
 def lint_cmake(source: str):
@@ -17,10 +17,7 @@ def lint_cmake(source: str):
     lines = source.splitlines()
 
     # State
-    initial_defs = {
-        name: Definition(name=name, line=-1, character=-1, kind="variable")
-        for name in BUILTIN_VARIABLES
-    }
+    initial_defs = {name: Definition(name=name, line=-1, character=-1, kind="variable") for name in BUILTIN_VARIABLES}
     tracker = ScopeTracker(globals=initial_defs)
 
     control_stack = []  # Stack of (command, start_line_index)
@@ -56,9 +53,7 @@ def lint_cmake(source: str):
             cmd_payload = meta_match.group(1).strip()
             if cmd_payload.startswith("define "):
                 var_spec = cmd_payload[len("define ") :].strip()
-                ns_match = re.match(
-                    r"^([A-Za-z_]*)\{([A-Za-z0-9_.-]+)\}$|([A-Za-z0-9_.-]+)", var_spec
-                )
+                ns_match = re.match(r"^([A-Za-z_]*)\{([A-Za-z0-9_.-]+)\}$|([A-Za-z0-9_.-]+)", var_spec)
                 if ns_match:
                     namespace = ns_match.group(1) or ""
                     var_name = ns_match.group(2) or ns_match.group(3)
@@ -160,7 +155,7 @@ def lint_cmake(source: str):
             namespace = match.group(1)
             var_name = match.group(2)
 
-            from cmake_ls.constants import VARIABLE_NAMESPACES
+            from fleurdelys.constants import VARIABLE_NAMESPACES
 
             if namespace not in VARIABLE_NAMESPACES:
                 diagnostics.append(
@@ -228,8 +223,7 @@ def lint_cmake(source: str):
                     if args:
                         target_name = args[0].lower()
                         custom_command_specs[target_name] = [
-                            {"sig": sig, "desc": f"Custom {cmd}"}
-                            for sig in pending_signatures
+                            {"sig": sig, "desc": f"Custom {cmd}"} for sig in pending_signatures
                         ]
                         pending_signatures = []
                 # Define func/macro (always, even without signature)
