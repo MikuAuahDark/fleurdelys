@@ -1,0 +1,13 @@
+project-includes = [
+    "src"
+]
+
+# Error Configuration
+missing-import = "error"
+bad-argument-type = "error"
+annotation-mismatch = "error"
+undefined-attribute = "error"
+bad-argument-count = "error"
+
+# Environment Configuration
+search-path = ["venv/Lib/site-packages"]

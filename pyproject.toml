@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cmake-ls"
+version = "0.1.0"
+description = "A lightweight CMake Language Server for DSL usage"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "pygls>=1.0.0",
+]
+
+[project.scripts]
+cmake-ls = "cmake_ls.__main__:main"

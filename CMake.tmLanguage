@@ -1,0 +1,93 @@
+{
+  "scopeName": "source.cmake",
+  "name": "CMake",
+  "fileTypes": ["CMakeLists.txt", "cmake"],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#variables"
+    },
+    {
+      "include": "#controlFlow"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#coreCommands"
+    },
+    {
+      "include": "#brackets"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.cmake",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.cmake",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.cmake",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "variable.other.cmake",
+          "match": "\\$\\{[^}]+\\}"
+        }
+      ]
+    },
+    "controlFlow": {
+      "patterns": [
+        {
+          "name": "keyword.control.cmake",
+          "match": "\\b(if|else|elseif|endif|foreach|endforeach|while|endwhile|function|endfunction|macro|endmacro|return|break|continue)\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.other.cmake",
+          "match": "\\b(PRIVATE|PUBLIC|INTERFACE)\\b"
+        }
+      ]
+    },
+    "coreCommands": {
+      "patterns": [
+        {
+          "name": "support.function.cmake",
+          "match": "\\b(add_executable|add_library|find_package|include|message|set|option|project|list|add_subdirectory|enable_testing|add_test)\\s*\\("
+        }
+      ]
+    },
+    "brackets": {
+      "patterns": [
+        {
+          "name": "punctuation.definition.bracket.round.cmake",
+          "match": "[()]"
+        }
+      ]
+    }
+  }
+}
