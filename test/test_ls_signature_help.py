@@ -22,13 +22,13 @@ class TestSignatureHelp(unittest.TestCase):
         return signature_help(self.ls, params)
 
     def test_basic_signature(self):
-        source = "project(foo)"
-        # Inside project(
-        res = self.get_signature_help(source, 0, 8)
-        self.assertIsNotNone(res)
+        source = "math(EXPR result 1)"
+        # Inside math(
+        res = self.get_signature_help(source, 0, 5)
+        assert res is not None
         self.assertEqual(
             res.signatures[0].label,
-            "project(<projectname> [VERSION <major>[.<minor>[.<patch>[.<tweak>]]]] [LANGUAGES <language>...])",
+            "math(EXPR <&output> <?expression> [OUTPUT_FORMAT <DECIMAL|HEXADECIMAL>])",
         )
 
     def test_closed_signature(self):
@@ -38,11 +38,11 @@ class TestSignatureHelp(unittest.TestCase):
         self.assertIsNone(res)
 
     def test_multiline_signature(self):
-        source = "target_link_libraries(\n    mytarget\n    PUBLIC\n    other\n)"
+        source = "string(\n    CONCAT\n    output\n    other\n)"
         # Inside on second line
         res = self.get_signature_help(source, 1, 4)
-        self.assertIsNotNone(res)
-        self.assertTrue(any("target_link_libraries" in s.label for s in res.signatures))
+        assert res is not None
+        self.assertTrue(any("string" in s.label for s in res.signatures))
 
         # Inside on third line
         res = self.get_signature_help(source, 2, 4)

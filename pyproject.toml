@@ -14,3 +14,7 @@ dependencies = [
 
 [project.scripts]
 fleurdelys = "fleurdelys.__main__:main"
+
+[tool.hatch.build.targets.wheel.force-include]
+"annotations/core.cmake" = "fleurdelys/annotations/core.cmake"
+"annotations/cmake.cmake" = "fleurdelys/annotations/cmake.cmake"

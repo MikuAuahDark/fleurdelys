@@ -31,7 +31,7 @@ from lsprotocol.types import (
 )
 
 from .analysis import analyze, command_overloads
-from .constants import ALL_COMMANDS, BUILTIN_VARIABLES, COMMAND_SIGNATURES, VARIABLE_NAMESPACES
+from .constants import BUILTIN_VARIABLES, VARIABLE_NAMESPACES
 from .syntax import active_command, in_comment, line_starts
 
 
@@ -122,7 +122,7 @@ def completions(ls: CMakeLanguageServer, params: CompletionParams):
                 for word in sorted(keywords)
             ],
         )
-    items = {name: CompletionItem(label=name, kind=CompletionItemKind.Function) for name in ALL_COMMANDS}
+    items = {}
     for name, d in result.commands.items():
         items[name] = CompletionItem(
             label=d.name, kind=CompletionItemKind.Function, documentation=markdown(d.description)
@@ -204,8 +204,6 @@ def signature_help(ls: CMakeLanguageServer, params: SignatureHelpParams):
         )
         for ov in specs
     ]
-    if not signatures:
-        signatures = [SignatureInformation(label=sig) for sig in COMMAND_SIGNATURES.get(name, [])]
     if not signatures:
         return None
     scores = []

@@ -70,6 +70,25 @@ includes. Cycles and repeated imports in a scope are guarded. Function-local
 symbols stay local. Open editor buffers take precedence over saved files.
 Include paths can use known variable values and `${CMAKE_CURRENT_LIST_DIR}`;
 unresolved dynamic paths do not produce definite missing-file warnings.
-There is no preload mechanism yet.
+`annotations/core.cmake` is loaded automatically before each file unit, including
+when analysis stops at the cursor. Its declarations are available without an
+explicit include.
+
+The repository provides two annotation files, with descriptions adapted from
+the official CMake 4.4 manual and links to each entry's documentation:
+
+- `annotations/core.cmake` contains general-purpose language utilities for DSL
+  usage: control flow, normal variables, strings, lists, files, paths, processes,
+  metaprogramming, and list-file, function and regular-expression context.
+- `annotations/cmake.cmake` imports `core.cmake` and adds interfaces for normal
+  CMake execution: cache entries, policies, configuration, properties, discovery,
+  generator-expression stripping, diagnostics, host queries and runtime settings.
+  It is not yet a complete catalogue of project/build-system commands.
+
+Import the additional CMake interfaces with
+`## include(relative/path/to/annotations/cmake.cmake)`, relative to your file.
+Importing `cmake.cmake` alone includes both sets. Loaded find modules or package
+configurations may require a project. Runtime version requirements still apply;
+the annotations do not implement commands.
 
 The former `##cmake-ls:` directives are no longer supported.

@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
-from .constants import BUILTIN_VARIABLES, COMMAND_SPECS, VARIABLE_NAMESPACES
+from .constants import BUILTIN_VARIABLES, CORE_ANNOTATIONS, VARIABLE_NAMESPACES
 from .signatures import SignatureParser, SignatureMatcher, argument_value, variable_candidate
 from .syntax import Command, Comment, scan, line_starts, position
 from .utils import Definition, ScopeTracker
@@ -47,9 +47,7 @@ def make_matcher(signature, legacy=False):
 def command_overloads(name, definition=None):
     if definition and definition.kind in ("function", "macro"):
         return definition.overloads
-    return [
-        Overload(ov["sig"], ov["desc"], make_matcher(ov["sig"], True)) for ov in COMMAND_SPECS.get(name.lower(), [])
-    ]
+    return []
 
 
 def path_from_uri(uri):
@@ -69,6 +67,7 @@ def path_from_uri(uri):
 def analyze(source, uri=None, position_line=None, loader=None, position_offset=None):
     result = Analysis()
     tracker = ScopeTracker()
+    core_uri = CORE_ANNOTATIONS.as_uri()
     visiting, imported, declarations = set(), set(), set()
 
     def issue(file_uri, starts, offset, message, warning=True):
@@ -174,6 +173,8 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
             return
         declarations.add(key)
         previous = tracker.current.commands.get(name.lower())
+        if previous and previous.uri == core_uri and file_uri != core_uri:
+            previous = None
         if previous is None or not previous.signatures:
             d = definition(name, "function", event, starts, file_uri, description)
             d.line, d.character = position(starts, event.payload_start + payload.find(name, payload.find("(")))
@@ -266,6 +267,8 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
             elif cmd in ("function", "macro") and args:
                 name = values[0]
                 existing = tracker.command(name)
+                if existing and existing.uri == core_uri and file_uri != core_uri:
+                    existing = None
                 d = definition(name, cmd, event, starts, file_uri, description)
                 d.args = values[1:]
                 if existing and existing.signatures:
@@ -334,6 +337,12 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
     if position_line is not None:
         starts = line_starts(source)
         limit = starts[position_line] if position_line < len(starts) else len(source)
+    if uri != core_uri:
+        core_source = loader(core_uri) if loader else None
+        if core_source is None:
+            core_source = CORE_ANNOTATIONS.read_text(encoding="utf-8-sig")
+        imported.add((core_uri, tracker.current))
+        visit(core_source, core_uri)
     visit(source, uri, limit)
     result.definitions = tracker.all_visible_variables()
     result.commands = tracker.all_visible_commands()

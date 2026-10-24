@@ -10,6 +10,7 @@ from lsprotocol.types import (
 from pygls.workspace import TextDocument
 
 from fleurdelys.analysis import analyze, command_overloads
+from fleurdelys.constants import CORE_ANNOTATIONS
 from fleurdelys.linting import lint_cmake
 from fleurdelys.server import completions, definition, hover, signature_help
 from fleurdelys.signatures import SignatureMatcher, SignatureParser
@@ -64,6 +65,38 @@ class GrammarTests(unittest.TestCase):
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_core_preloaded_for_each_unit_and_cursor(self):
+        for options in ({}, {"uri": "untitled:example"}, {"position_offset": 0}, {"position_line": 0}):
+            with self.subTest(options=options):
+                result = analyze("", **options)
+                self.assertIn("string", result.commands)
+                self.assertIn("cmake_path", result.commands)
+                self.assertEqual(result.commands["string"].uri, CORE_ANNOTATIONS.as_uri())
+                self.assertFalse(result.issues)
+        result = analyze('string(TOUPPER text OUTPUT)\nmessage(${OUTPUT})\n')
+        self.assertIn("OUTPUT", result.definitions)
+        self.assertFalse(result.issues)
+        self.assertNotIn("OUTPUT", analyze("").definitions)
+
+    def test_core_include_is_not_duplicated(self):
+        baseline = analyze("").commands["string"].signatures
+        source = f'## include("{CORE_ANNOTATIONS.as_posix()}")\n'
+        self.assertEqual(analyze(source, uri="file:///main.cmake").commands["string"].signatures, baseline)
+
+    def test_unsaved_core_annotations_are_loaded(self):
+        core_uri = CORE_ANNOTATIONS.as_uri()
+        loader = lambda target: "## function(updated FOO)\n" if target == core_uri else None
+        result = analyze("updated(FOO)\n", loader=loader)
+        self.assertEqual(result.commands["updated"].uri, core_uri)
+        self.assertFalse(result.issues)
+
+    def test_local_annotations_replace_core_signatures(self):
+        result = analyze("## function(math CUSTOM)\nmath(CUSTOM)\n")
+        self.assertEqual(result.commands["math"].signatures, ["CUSTOM"])
+        self.assertEqual(result.commands["math"].line, 0)
+        self.assertFalse(result.issues)
+        self.assertNotEqual(analyze("").commands["math"].signatures, ["CUSTOM"])
+
     def test_markdown_and_overloads(self):
         source = """## # First overload
 ##
@@ -99,7 +132,7 @@ set(UNRELATED 1)
 set(TEXT "## function(also_hidden FOO)")
 """
         result = analyze(source)
-        self.assertEqual(set(result.commands), {"right"})
+        self.assertEqual(set(result.commands) - set(analyze("").commands), {"right"})
         self.assertEqual(result.commands["right"].description, "Kept description.")
         self.assertIsNone(result.definitions["UNRELATED"].description)
         source = '#"unterminated quote in a line comment\n## function(visible FOO)\n'
@@ -205,7 +238,7 @@ class IncludeTests(unittest.TestCase):
             (root / "b.cmake").write_text('## include(sub/a.cmake)\n## Description.\n## set(IMPORTED 1)\n', encoding="utf-8")
             source = '## include(sub/a.cmake)\ninclude("sub/a.cmake")\nimported(FOO)\n'
             result = analyze(source, uri=(root / "main.cmake").as_uri())
-            self.assertEqual(set(result.commands), {"imported", "ordinary"})
+            self.assertEqual(set(result.commands) - set(analyze("").commands), {"imported", "ordinary"})
             self.assertEqual(len(result.commands["imported"].overloads), 1)
             self.assertIn("IMPORTED", result.definitions)
             self.assertNotIn("HIDDEN", result.definitions)
@@ -227,7 +260,7 @@ class IncludeTests(unittest.TestCase):
     def test_include_visibility_and_live_loader(self):
         with tempfile.TemporaryDirectory() as directory:
             uri = (Path(directory) / "main.cmake").as_uri()
-            loader = lambda _: "## function(local FOO)\n"
+            loader = lambda target: None if target == CORE_ANNOTATIONS.as_uri() else "## function(local FOO)\n"
             source = "function(test)\n## include(a.cmake)\nlocal(FOO)\nendfunction()\n"
             result = analyze(source, uri=uri, loader=loader)
             self.assertNotIn("local", result.commands)
@@ -259,6 +292,13 @@ class LspTests(unittest.TestCase):
             character = len(lines[line].encode("utf-16-le")) // 2
         params = params_type(text_document=TextDocumentIdentifier(uri=uri), position=Position(line=line, character=character))
         return handler(ls, params)
+
+    def test_core_completion_and_hover_without_include(self):
+        result = self.call(completions, CompletionParams, "string(")
+        self.assertIn("TOUPPER", [item.label for item in result.items])
+        result = self.call(hover, HoverParams, "string(", character=2)
+        self.assertIn("string(", result.contents.value)
+        self.assertIn("https://cmake.org/", result.contents.value)
 
     def test_incomplete_completion(self):
         prefix = "## function(math FEXPR <?expression> [PRECISION <DEFAULT|FULL>])\n"
