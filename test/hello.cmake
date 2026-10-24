@@ -8,12 +8,15 @@ string(FIND "Hello" "world" outputvar REVERSE)
 message(STATUS "${outputvar}")
 message(STATUS "$ENV{HOME}")
 
-##cmake-ls: signature <v&:bar>
+## function(foo <&bar>)
 function(foo bar)
 	message(STATUS "${ARGV}")
 endfunction()
 
-# Stuff
-##cmake-ls: define BAR
+## Stuff
+## set(BAR 1)
 
 message(STATUS "${BAR}")
+foo(BAZ)
+
+message(STATUS ${BAZ})

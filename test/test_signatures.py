@@ -2,7 +2,7 @@ from fleurdelys.signatures import SignatureParser, SignatureMatcher
 
 
 def test():
-    sig_str = "<target> [SYSTEM] [AFTER|BEFORE] <INTERFACE|PUBLIC|PRIVATE> <items> ..."
+    sig_str = "<?target> [SYSTEM] [AFTER|BEFORE] <INTERFACE|PUBLIC|PRIVATE> <?items>..."
     parser = SignatureParser(sig_str)
     elements = parser.parse()
     print("Parsed Elements:", elements)
@@ -26,7 +26,7 @@ def test():
     print(f"Match 4 (Invalid Choice): {res.success} {res.message}")
 
     # message specialization
-    msg_sig = "STATUS <message>"
+    msg_sig = "STATUS <?message>"
     parser_msg = SignatureParser(msg_sig)
     elements_msg = parser_msg.parse()
     matcher_msg = SignatureMatcher(elements_msg)

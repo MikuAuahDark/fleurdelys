@@ -13,13 +13,13 @@ def test_meta_commands():
     with open(test_file, "r") as f:
         source = f.read()
 
-    print("--- LINTING RESULTS ---")
+    print("Annotation linting results:")
     diagnostics = lint_cmake(source)
     for d in diagnostics:
         severity = "ERROR" if d.severity == 1 else "WARNING"
         print(f"Line {d.range.start.line + 1}: [{severity}] {d.message}")
 
-    print("\n--- DEFINITIONS RESULTS ---")
+    print("\nAnnotation definitions results:")
     defs = extract_definitions(source)
 
     # Check MY_VAR

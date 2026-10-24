@@ -47,6 +47,8 @@ CORE_UTILS = [
 BUILTIN_VARIABLES = {
     "CARTETHYIA": "Undefined if running under normal CMake, true otherwise.",
     "CMAKE_SOURCE_DIR": "The path to the top level of the source tree.",
+    "CMAKE_CURRENT_LIST_DIR": "The directory containing the CMake list file currently being processed.",
+    "CMAKE_CURRENT_LIST_FILE": "The full path to the CMake list file currently being processed.",
     "CMAKE_BINARY_DIR": "The path to the top level of the build tree.",
     "PROJECT_NAME": "The name of the project specified in the most recent project() command.",
     "PROJECT_SOURCE_DIR": "The path to the source directory of the current project.",

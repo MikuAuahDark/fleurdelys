@@ -1,25 +1,25 @@
-# Test Meta Commands
+# Test annotation declarations
 
-# This is a description for MY_VAR
-##cmake-ls: define MY_VAR
+## This is a description for MY_VAR
+## set(MY_VAR 1)
 
-# This is a description for MY_FUNC
-##cmake-ls: signature <ARG1> <ARG2>
+## This is a description for MY_FUNC
+## function(my_func <?ARG1> <?ARG2>)
 function(my_func)
 endfunction()
 
 # Testing signature mismatch
-my_func(A) # Error: Invalid arguments (expected <ARG1> <ARG2>)
+my_func(A) # Error: Invalid arguments (expected two arguments)
 my_func(A B) # OK
 
 # Testing default signature
 function(default_func arg1 arg2)
 endfunction()
-default_func(X) # Error: Invalid arguments (expected <arg1> <arg2>)
+default_func(X) # Error: Invalid arguments (expected two arguments)
 
-# Testing misplaced signature
-##cmake-ls: signature <FOO>
-set(X 1) # Warning: Signature override must be followed by function or macro.
+# An annotation need not have an implementation.
+## function(external FOO)
+external(FOO)
 
-# Testing unknown meta command
-##cmake-ls: unknown_cmd
+# Testing malformed annotation
+## function(broken [FOO)

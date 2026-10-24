@@ -1,300 +1,237 @@
+"""Annotation grammar and a nondeterministic matcher shared by all LSP features."""
+
 import re
-from typing import List, Optional, Tuple, Union
-
-
-class SignatureMatchResult:
-    def __init__(self, success: bool, message: str = "", arg_index: int = -1):
-        self.success = success
-        self.message = message
-        self.arg_index = arg_index
+from dataclasses import dataclass, field
+from typing import List
 
 
 class SignatureElement:
     pass
 
 
+@dataclass
 class Literal(SignatureElement):
-    def __init__(self, value: str):
-        self.value = value
-
-    def __repr__(self):
-        return self.value
+    value: str
 
 
+@dataclass
 class Choice(SignatureElement):
-    def __init__(self, choices: List[str]):
-        self.choices = choices
-
-    def __repr__(self):
-        return "|".join(self.choices)
+    choices: List[str]
 
 
+@dataclass
 class Placeholder(SignatureElement):
-    def __init__(self, name: str):
-        self.name = name
-
-    def __repr__(self):
-        return f"<{self.name}>"
+    name: str
+    defines_variable: bool = False
 
 
+@dataclass
 class Group(SignatureElement):
-    def __init__(
-        self, elements: List[SignatureElement], required: bool, repeated: bool = False
-    ):
-        self.elements = elements
-        self.required = required
-        self.repeated = repeated
-
-    def __repr__(self):
-        inner = " ".join(map(str, self.elements))
-        if self.repeated:
-            inner += " ..."
-        return f"<{inner}>" if self.required else f"[{inner}]"
+    elements: List[SignatureElement]
+    required: bool
+    repeated: bool = False
 
 
 class SignatureParser:
-    def __init__(self, sig: str):
-        # Normalize: ensure spaces around punctuation for easy splitting
-        # But | should stay with its neighbors if they are literals
-        sig = re.sub(r"([\[\]<>])", r" \1 ", sig)
-        self.tokens = sig.split()
+    def __init__(self, sig: str, legacy: bool = False):
+        self.tokens = re.findall(r"\.\.\.|[<>\[\]|]|[^\s<>\[\]|]+?(?=\.\.\.|[\s<>\[\]|]|$)", sig)
         self.pos = 0
+        self.legacy = legacy
 
-    def parse(self) -> List[SignatureElement]:
-        elements = []
-        while self.pos < len(self.tokens):
-            elements.append(self.parse_element())
+    def parse(self):
+        elements = self._sequence()
+        if self.pos != len(self.tokens):
+            raise ValueError("Unexpected closing delimiter")
         return elements
 
-    def parse_element(self, in_placeholder_group: bool = False) -> SignatureElement:
-        token = self.tokens[self.pos]
-        if token == "[":
+    def _sequence(self, closing=None, angle=False):
+        elements = []
+        while self.pos < len(self.tokens):
+            token = self.tokens[self.pos]
+            if token in (">", "]"):
+                break
             self.pos += 1
-            inner = []
-            while self.pos < len(self.tokens) and self.tokens[self.pos] != "]":
-                inner.append(self.parse_element(in_placeholder_group))
-
-            repeated = False
-            if self.pos < len(self.tokens) and self.tokens[self.pos] == "]":
+            if token in ("<", "["):
+                end = ">" if token == "<" else "]"
+                inner = self._sequence(end, token == "<")
+                if self.pos >= len(self.tokens) or self.tokens[self.pos] != end:
+                    raise ValueError(f"Missing '{end}'")
                 self.pos += 1
-                if self.pos < len(self.tokens) and self.tokens[self.pos] == "...":
-                    repeated = True
+                if not inner:
+                    raise ValueError("Empty signature group")
+                element = Group(inner, token == "<")
+            elif token in ("|", "..."):
+                raise ValueError(f"Unexpected '{token}'")
+            elif token.startswith(("?", "&")):
+                if not re.fullmatch(r"[?&][A-Za-z_][A-Za-z0-9_.-]*", token):
+                    raise ValueError("Invalid argument name")
+                element = Placeholder(token[1:], token.startswith("&"))
+            elif self.legacy and ((angle and "|" not in self.tokens[self.pos: self._closing_index()]) or not token.isupper()):
+                element = Placeholder(token)
+            else:
+                element = Literal(token)
+
+            if self.pos < len(self.tokens) and self.tokens[self.pos] == "|":
+                if not isinstance(element, Literal):
+                    raise ValueError("Alternatives must be literals")
+                choices = [element.value]
+                while self.pos < len(self.tokens) and self.tokens[self.pos] == "|":
                     self.pos += 1
-
-            return Group(inner, required=False, repeated=repeated)
-
-        elif token == "<":
-            self.pos += 1
-            inner = []
-            while self.pos < len(self.tokens) and self.tokens[self.pos] != ">":
-                inner.append(self.parse_element(True))
-
-            repeated = False
-            if self.pos < len(self.tokens) and self.tokens[self.pos] == ">":
-                self.pos += 1
-                if self.pos < len(self.tokens) and self.tokens[self.pos] == "...":
-                    repeated = True
+                    if self.pos >= len(self.tokens):
+                        raise ValueError("Missing alternative")
+                    alternative = self.tokens[self.pos]
+                    if alternative in ("<", ">", "[", "]", "|", "...") or alternative.startswith(("?", "&")):
+                        raise ValueError("Alternatives must be literals")
+                    choices.append(alternative)
                     self.pos += 1
+                element = Choice(choices)
 
-            # Match at least once if inner is a Choice
-            if len(inner) == 1 and isinstance(inner[0], Choice):
-                return Group(inner, required=True, repeated=repeated)
-
-            return Group(inner, required=True, repeated=repeated)
-
-        elif "|" in token:
-            self.pos += 1
-            return Choice(token.split("|"))
-
-        else:
-            self.pos += 1
-            # Check for repetition
             if self.pos < len(self.tokens) and self.tokens[self.pos] == "...":
+                if not isinstance(element, Group):
+                    if not self.legacy:
+                        raise ValueError("Repetition must follow '<...>' or '[...]'")
+                    element = Group([element], True)
+                if self._nullable(element.elements):
+                    raise ValueError("A repeated group must consume an argument")
+                element.repeated = True
                 self.pos += 1
-                return Group(
-                    [
-                        (
-                            Placeholder(token)
-                            if (in_placeholder_group or not token.isupper())
-                            else Literal(token)
-                        )
-                    ],
-                    required=True,
-                    repeated=True,
-                )
+            elements.append(element)
+        return elements
 
-            if in_placeholder_group or not token.isupper():
-                return Placeholder(token)
-            return Literal(token)
+    def _closing_index(self):
+        return next((i for i in range(self.pos, len(self.tokens)) if self.tokens[i] in (">", "]")), len(self.tokens))
+
+    @staticmethod
+    def _nullable(elements):
+        return all(isinstance(e, Group) and (not e.required or SignatureParser._nullable(e.elements)) for e in elements)
+
+
+def argument_value(arg):
+    if arg.startswith('"') and arg.endswith('"'):
+        return arg[1:-1]
+    bracket = re.fullmatch(r"\[(=*)\[(.*)\]\1\]", arg, re.DOTALL)
+    return bracket.group(2) if bracket else arg
+
+
+def variable_candidate(arg):
+    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", arg))
+
+
+def dynamic_argument(arg):
+    if re.match(r"\[(=*)\[", arg):
+        return False
+    return bool(re.search(r"(?<!\\)\$(?:\{|[A-Za-z_]+\{)", arg))
+
+
+@dataclass
+class SignatureMatchResult:
+    success: bool
+    message: str = ""
+    arg_index: int = -1
+    score: int = 0
+    definitions: set = field(default_factory=set)
 
 
 class SignatureMatcher:
-    def __init__(self, elements: List[SignatureElement]):
+    def __init__(self, elements):
         self.elements = elements
+        self.edges = {}
+        self._next_state = 0
+        self.start = self._state()
+        self.end = self._state()
+        self._compile(elements, self.start, self.end)
 
-    def match(self, args: List[str]) -> SignatureMatchResult:
-        success, next_arg_idx = self._match_group(self.elements, args, 0)
-        if not success:
-            return SignatureMatchResult(False, "Signature mismatch", next_arg_idx)
+    def _state(self):
+        state = self._next_state
+        self._next_state += 1
+        self.edges[state] = []
+        return state
 
-        if next_arg_idx < len(args):
-            return SignatureMatchResult(False, "Too many arguments", next_arg_idx)
-
-        return SignatureMatchResult(True)
-
-    def _match_group(
-        self, elements: List[SignatureElement], args: List[str], arg_idx: int
-    ) -> Tuple[bool, int]:
-        current_arg_idx = arg_idx
-        for i, el in enumerate(elements):
-            if isinstance(el, Group) and el.repeated:
-                # Match at least once if required
-                matched_once = False
-
-                # Lookahead for anchoring: if the NEXT element in the signature
-                # is a Literal or Choice that MUST match, we should stop repeating
-                # when we hit it.
-                next_el = elements[i + 1] if i + 1 < len(elements) else None
-
-                while current_arg_idx < len(args):
-                    if next_el and matched_once:
-                        # If next element matches, and it's a Literal/Choice, stop greedily consuming
-                        if isinstance(
-                            next_el, (Literal, Choice)
-                        ) and self._match_element(next_el, args[current_arg_idx]):
-                            break
-                        # Also stop if next_el is a required group that matches
-                        if isinstance(next_el, Group) and next_el.required:
-                            success_next, _ = self._match_group(
-                                next_el.elements, args, current_arg_idx
-                            )
-                            if success_next:
-                                break
-
-                    success, next_idx = self._match_group(
-                        el.elements, args, current_arg_idx
-                    )
-                    if success:
-                        matched_once = True
-                        current_arg_idx = next_idx
-                    else:
-                        break
-
-                if el.required and not matched_once:
-                    return False, current_arg_idx
-            elif isinstance(el, Group):
-                success, next_idx = self._match_group(
-                    el.elements, args, current_arg_idx
-                )
-                if success:
-                    current_arg_idx = next_idx
-                elif el.required:
-                    return False, current_arg_idx
+    def _compile(self, elements, start, end):
+        current = start
+        for i, element in enumerate(elements):
+            target = end if i == len(elements) - 1 else self._state()
+            if isinstance(element, Group):
+                entry, exit = self._state(), self._state()
+                self.edges[current].append((None, entry))
+                self._compile(element.elements, entry, exit)
+                self.edges[exit].append((None, target))
+                if not element.required:
+                    self.edges[current].append((None, target))
+                if element.repeated:
+                    self.edges[exit].append((None, entry))
             else:
-                if current_arg_idx >= len(args):
-                    return False, current_arg_idx
+                self.edges[current].append((element, target))
+            current = target
+        if not elements:
+            self.edges[start].append((None, end))
 
-                success = self._match_element(el, args[current_arg_idx])
-                if success:
-                    current_arg_idx += 1
-                else:
-                    return False, current_arg_idx
+    def _closure(self, states):
+        states = dict(states)
+        pending = list(states)
+        while pending:
+            state = pending.pop()
+            score, definitions = states[state]
+            for element, target in self.edges[state]:
+                if element is None and self._merge(states, target, score, definitions):
+                    pending.append(target)
+        return states
 
-        return True, current_arg_idx
-
-    def _match_element(self, el: SignatureElement, arg: str) -> bool:
-        # Ignore variable references in validation
-        if arg.startswith("${") and arg.endswith("}"):
+    @staticmethod
+    def _merge(states, target, score, definitions):
+        old = states.get(target)
+        if old is None or score > old[0]:
+            states[target] = (score, frozenset(definitions))
             return True
-
-        if isinstance(el, Literal):
-            return arg.upper() == el.value.upper()
-        elif isinstance(el, Choice):
-            return arg.upper() in [c.upper() for c in el.choices]
-        elif isinstance(el, Placeholder):
-            return True
+        if score == old[0]:
+            common = old[1].intersection(definitions)
+            if common != old[1]:
+                states[target] = (score, common)
+                return True
         return False
 
-    def get_completions(self, args: List[str]) -> List[str]:
-        completions = set()
-        self._collect_completions(self.elements, args, 0, completions)
-        return sorted(list(completions))
-
-    def _collect_completions(
-        self,
-        elements: List[SignatureElement],
-        args: List[str],
-        arg_idx: int,
-        completions: set,
-    ):
-        if arg_idx > len(args):
-            return
-
-        current_arg_idx = arg_idx
-        for i, el in enumerate(elements):
-            if current_arg_idx == len(args):
-                # We are at the position where we need suggestions
-                self._add_element_completions(el, completions)
-                # If this element is not required, we also need to look at the next element
-                if isinstance(el, Group) and not el.required:
-                    continue
-                else:
-                    return
-
-            # Try to match current argument
-            if isinstance(el, Group):
-                if el.repeated:
-                    # Match multiple times
-                    while current_arg_idx < len(args):
-                        # Use lookahead if needed, but for completions we just try to move forward
-                        success, next_idx = self._match_group(
-                            el.elements, args, current_arg_idx
-                        )
-                        if success:
-                            if next_idx == len(args):
-                                # We matched exactly up to here, so we could repeat this group
-                                # or move to the next element
-                                self._add_element_completions(el, completions)
-                                # Continue to next element because this one might be finished
-                                current_arg_idx = next_idx
-                                break
-                            current_arg_idx = next_idx
-                        else:
-                            break
-                    # If we broke out, continue to next element
-                else:
-                    success, next_idx = self._match_group(
-                        el.elements, args, current_arg_idx
-                    )
-                    if success:
-                        current_arg_idx = next_idx
-                    elif el.required:
-                        return
-                    else:
-                        # Optional group didn't match, skip to next element
+    def _walk(self, args):
+        states = self._closure({self.start: (0, frozenset())})
+        for index, arg in enumerate(args):
+            next_states = {}
+            value = argument_value(arg)
+            dynamic = dynamic_argument(arg)
+            for state, (score, definitions) in states.items():
+                for element, target in self.edges[state]:
+                    if element is None:
                         continue
-            else:
-                if current_arg_idx >= len(args):
-                    return
-                if self._match_element(el, args[current_arg_idx]):
-                    current_arg_idx += 1
-                else:
-                    # Mismatch
-                    return
+                    literal = isinstance(element, (Literal, Choice))
+                    matches = isinstance(element, Placeholder) or dynamic
+                    if isinstance(element, Literal):
+                        matches = matches or value == element.value
+                    elif isinstance(element, Choice):
+                        matches = matches or value in element.choices
+                    if matches:
+                        effects = definitions
+                        if isinstance(element, Placeholder) and element.defines_variable and variable_candidate(arg):
+                            effects = definitions | {index}
+                        self._merge(next_states, target, score + int(literal and not dynamic), effects)
+            states = self._closure(next_states)
+            if not states:
+                return states, index
+        return states, len(args)
 
-    def _add_element_completions(self, el: SignatureElement, completions: set):
-        if isinstance(el, Literal):
-            completions.add(el.value)
-        elif isinstance(el, Choice):
-            for c in el.choices:
-                completions.add(c)
-        elif isinstance(el, Group):
-            # The first possible literals of a group
-            for inner_el in el.elements:
-                self._add_element_completions(inner_el, completions)
-                if isinstance(inner_el, Group) and not inner_el.required:
-                    continue
-                if isinstance(inner_el, Placeholder):
-                    # Placeholder doesn't give completion but might allow next element
-                    continue
-                break
+    def match(self, args):
+        states, index = self._walk(args)
+        if self.end not in states:
+            return SignatureMatchResult(False, "Signature mismatch", index)
+        score, definitions = states[self.end]
+        return SignatureMatchResult(True, score=score, definitions=set(definitions))
+
+    def get_completions(self, args, variables=()):
+        states, _ = self._walk(args)
+        result = set()
+        for state in states:
+            for element, _ in self.edges[state]:
+                if isinstance(element, Literal):
+                    result.add(element.value)
+                elif isinstance(element, Choice):
+                    result.update(element.choices)
+                elif isinstance(element, Placeholder) and element.defines_variable:
+                    result.update(variables)
+        return sorted(result)

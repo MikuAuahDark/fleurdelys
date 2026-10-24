@@ -1,41 +1,38 @@
-from pygls.lsp.server import LanguageServer
 import re
-from .constants import (
-    ALL_COMMANDS,
-    BUILTIN_VARIABLES,
-    COMMAND_SPECS,
-    VARIABLE_NAMESPACES,
-    COMMAND_SIGNATURES,
-)
-from .utils import extract_definitions, is_in_comment
+
+from pygls.lsp.server import LanguageServer
 from lsprotocol.types import (
     TEXT_DOCUMENT_COMPLETION,
+    TEXT_DOCUMENT_DEFINITION,
+    TEXT_DOCUMENT_HOVER,
+    TEXT_DOCUMENT_SIGNATURE_HELP,
+    TEXT_DOCUMENT_DID_OPEN,
+    TEXT_DOCUMENT_DID_CHANGE,
     CompletionParams,
     CompletionList,
     CompletionItem,
     CompletionItemKind,
     CompletionOptions,
-    TEXT_DOCUMENT_DID_CHANGE,
-    TEXT_DOCUMENT_DID_OPEN,
-    TEXT_DOCUMENT_SIGNATURE_HELP,
-    DidOpenTextDocumentParams,
-    DidChangeTextDocumentParams,
-    PublishDiagnosticsParams,
-    SignatureHelpParams,
-    SignatureHelp,
-    SignatureInformation,
-    SignatureHelpOptions,
-    TEXT_DOCUMENT_DEFINITION,
     DefinitionParams,
-    Location,
-    Range,
-    Position,
-    TEXT_DOCUMENT_HOVER,
     HoverParams,
     Hover,
     MarkupContent,
     MarkupKind,
+    SignatureHelpParams,
+    SignatureHelp,
+    SignatureInformation,
+    SignatureHelpOptions,
+    DidOpenTextDocumentParams,
+    DidChangeTextDocumentParams,
+    PublishDiagnosticsParams,
+    Location,
+    Range,
+    Position,
 )
+
+from .analysis import analyze, command_overloads
+from .constants import ALL_COMMANDS, BUILTIN_VARIABLES, COMMAND_SIGNATURES, VARIABLE_NAMESPACES
+from .syntax import active_command, in_comment, line_starts
 
 
 class CMakeLanguageServer(LanguageServer):
@@ -46,386 +43,204 @@ class CMakeLanguageServer(LanguageServer):
 server = CMakeLanguageServer()
 
 
-@server.feature(TEXT_DOCUMENT_COMPLETION, CompletionOptions(trigger_characters=["{"]))
-def completions(ls: CMakeLanguageServer, params: CompletionParams):
-    """
-    Provide completion for CMake commands and variables.
-    """
+def markdown(value):
+    return MarkupContent(kind=MarkupKind.Markdown, value=value or "")
+
+
+def document_offset(doc, position):
+    starts = line_starts(doc.source)
+    if position.line >= len(starts):
+        return None
+    # LSP positions use UTF-16 code units by default.
+    line = doc.source[starts[position.line] :].split("\n", 1)[0]
+    prefix = line.encode("utf-16-le")[: position.character * 2].decode("utf-16-le", errors="ignore")
+    return starts[position.line] + len(prefix)
+
+
+def document_loader(ls):
+    def load(uri):
+        documents = getattr(ls.workspace, "text_documents", {})
+        if isinstance(documents, dict):
+            doc = documents.get(uri)
+            if doc is not None and isinstance(doc.source, str):
+                return doc.source
+        return None
+
+    return load
+
+
+def context(ls, params):
     doc = ls.workspace.get_text_document(params.text_document.uri)
+    offset = document_offset(doc, params.position)
+    return doc, offset
 
-    # Hide suggestions in comments
-    if is_in_comment(doc.source, params.position.line, params.position.character):
+
+def at_cursor(ls, params, doc, offset):
+    return analyze(doc.source, uri=params.text_document.uri, position_offset=offset, loader=document_loader(ls))
+
+
+@server.feature(TEXT_DOCUMENT_COMPLETION, CompletionOptions(trigger_characters=["{", "(", " "]))
+def completions(ls: CMakeLanguageServer, params: CompletionParams):
+    doc, offset = context(ls, params)
+    if offset is None or in_comment(doc.source, offset):
         return CompletionList(is_incomplete=False, items=[])
-
-    line = doc.lines[params.position.line]
-    before_cursor = line[: params.position.character]
-
-    match = re.search(r"([A-Za-z0-9_]+)\s*\(\s*(.*)$", before_cursor)
-    if match:
-        cmd_name = match.group(1).lower()
-        args_str = match.group(2)
-        # Parse arguments (basic splitting)
-        args = re.findall(r"\"[^\"]*\"|\S+", args_str)
-        # If it doesn't end with a space, we are completing the last argument
-        # unless there are no arguments yet.
-        if args and not args_str.endswith(" "):
-            # We are completing the current last arg, so we need suggestions for its position
-            args = args[:-1]
-
-        items = []
-        if cmd_name in COMMAND_SPECS:
-            from .signatures import SignatureParser, SignatureMatcher
-
-            all_keywords = set()
-            for ov in COMMAND_SPECS[cmd_name]:
-                parser = SignatureParser(ov["sig"])
-                elements = parser.parse()
-                matcher = SignatureMatcher(elements)
-                keywords = matcher.get_completions(args)
-                for k in keywords:
-                    all_keywords.add(k)
-
-            items = [
-                CompletionItem(label=k, kind=CompletionItemKind.EnumMember)
-                for k in sorted(list(all_keywords))
-            ]
-
-        # If no keywords found, maybe it's just a general command or custom function
-        if not items:
-            # Check if it was an empty call string( -> suggest subcommands
-            if not args and cmd_name in COMMAND_SPECS:
-                # This should have been caught by get_completions but let's be safe
-                pass
-
-        if items:
-            return CompletionList(is_incomplete=False, items=items)
-
-    # Check for $NAMESPACE{PREFIX
-    var_match = re.search(r"\$([A-Za-z_]*)\{([A-Za-z0-9_.-]*)$", before_cursor)
-
-    if var_match:
-        namespace = var_match.group(1)
-        # prefix = var_match.group(2) # not strictly needed for lsprotocol CompletionList unless filtering
-
-        from .constants import VARIABLE_NAMESPACES
-
-        if namespace not in VARIABLE_NAMESPACES:
-            return CompletionList(is_incomplete=False, items=[])
-
-        items = []
+    result = at_cursor(ls, params, doc, offset)
+    before = doc.source[:offset]
+    variable = re.search(r"\$([A-Za-z_]*)\{([A-Za-z0-9_.-]*)$", before)
+    if variable:
+        namespace = variable.group(1)
+        definitions = VARIABLE_NAMESPACES.get(namespace, {})
+        descriptions = dict(definitions)
         if namespace == "":
-            # Standard scoped + built-in variables
-            defs = extract_definitions(doc.source, params.position.line)
-            for name, d in defs.items():
-                if d.kind in ("variable", "argument"):
-                    items.append(
-                        CompletionItem(
-                            label=name,
-                            kind=CompletionItemKind.Variable,
-                            documentation=d.description if d.description else None,
-                        )
-                    )
-            # Add built-ins
-            for name, desc in BUILTIN_VARIABLES.items():
-                items.append(
-                    CompletionItem(
-                        label=name,
-                        kind=CompletionItemKind.Variable,
-                        documentation=desc,
-                        detail="Built-in variable",
-                    )
-                )
-        else:
-            # Other namespaces (ENV, CACHE)
-            for name, desc in VARIABLE_NAMESPACES[namespace].items():
-                items.append(
-                    CompletionItem(
-                        label=name,
-                        kind=CompletionItemKind.Variable,
-                        documentation=desc,
-                        detail=f"{namespace} variable",
-                    )
-                )
-        return CompletionList(is_incomplete=False, items=items)
-
-    # Check for $ at the end to suggest namespaces
-    if before_cursor.endswith("$"):
-        from .constants import VARIABLE_NAMESPACES
-
-        items = []
-        for ns in VARIABLE_NAMESPACES.keys():
-            if ns == "":
-                items.append(CompletionItem(label="{", kind=CompletionItemKind.Keyword))
-            else:
-                items.append(
-                    CompletionItem(label=f"{ns}{{", kind=CompletionItemKind.Keyword)
-                )
-        return CompletionList(is_incomplete=False, items=items)
-
-    # Command completion (default)
-    items = []
-    # Add standard commands
-    for cmd in ALL_COMMANDS:
-        items.append(CompletionItem(label=cmd, kind=CompletionItemKind.Function))
-
-    # Add custom functions and macros
-    defs = extract_definitions(doc.source, params.position.line)
-    for name, d in defs.items():
-        if d.kind in ("function", "macro"):
-            kind = (
-                CompletionItemKind.Function
-                if d.kind == "function"
-                else CompletionItemKind.Snippet
-            )
-            items.append(
+            descriptions.update({name: d.description for name, d in result.definitions.items()})
+        return CompletionList(
+            is_incomplete=False,
+            items=[
+                CompletionItem(label=name, kind=CompletionItemKind.Variable, documentation=markdown(desc))
+                for name, desc in sorted(descriptions.items())
+            ],
+        )
+    if before.endswith("$"):
+        return CompletionList(
+            is_incomplete=False,
+            items=[CompletionItem(label=f"{ns}{{", kind=CompletionItemKind.Keyword) for ns in VARIABLE_NAMESPACES],
+        )
+    command, args = active_command(doc.source, offset)
+    if command:
+        name = command.name.lower()
+        specs = command_overloads(name, result.commands.get(name))
+        variables = set(BUILTIN_VARIABLES) | set(result.definitions)
+        keywords = set()
+        for overload in specs:
+            keywords.update(overload.matcher.get_completions(args, variables))
+        return CompletionList(
+            is_incomplete=False,
+            items=[
                 CompletionItem(
-                    label=name,
-                    kind=kind,
-                    documentation=d.description if d.description else None,
+                    label=word, kind=CompletionItemKind.Variable if word in variables else CompletionItemKind.EnumMember
                 )
-            )
+                for word in sorted(keywords)
+            ],
+        )
+    items = {name: CompletionItem(label=name, kind=CompletionItemKind.Function) for name in ALL_COMMANDS}
+    for name, d in result.commands.items():
+        items[name] = CompletionItem(
+            label=d.name, kind=CompletionItemKind.Function, documentation=markdown(d.description)
+        )
+    return CompletionList(is_incomplete=False, items=list(items.values()))
 
-    return CompletionList(is_incomplete=False, items=items)
+
+def word_at(source, offset):
+    start, end = offset, offset
+    while start > 0 and (source[start - 1].isalnum() or source[start - 1] in "_.-"):
+        start -= 1
+    while end < len(source) and (source[end].isalnum() or source[end] in "_.-"):
+        end += 1
+    return source[start:end]
+
+
+def symbol_at(result, source, offset):
+    word = word_at(source, offset)
+    # Variable references and bare argument names use the variable namespace.
+    line_start = source.rfind("\n", 0, offset) + 1
+    line_end = source.find("\n", offset)
+    line = source[line_start : line_end if line_end >= 0 else len(source)]
+    for match in re.finditer(r"\$([A-Za-z_]*)\{([A-Za-z0-9_.-]+)\}", line):
+        if match.start() <= offset - line_start <= match.end():
+            return result.definitions.get(match.group(2)) if match.group(1) in ("", "CACHE") else None
+    after = source[offset:]
+    command_position = re.match(r"[A-Za-z0-9_.-]*\s*\(", after)
+    if command_position:
+        return result.commands.get(word.lower())
+    return result.definitions.get(word) or result.commands.get(word.lower())
 
 
 @server.feature(TEXT_DOCUMENT_DEFINITION)
 def definition(ls: CMakeLanguageServer, params: DefinitionParams):
-    """
-    Go to definition for variables and functions.
-    """
-    doc = ls.workspace.get_text_document(params.text_document.uri)
-    line = doc.lines[params.position.line]
+    doc, offset = context(ls, params)
+    if offset is None or in_comment(doc.source, offset):
+        return None
+    result = at_cursor(ls, params, doc, offset)
+    d = symbol_at(result, doc.source, offset)
+    if d is None:
+        return None
+    # Source columns are code points; convert them to protocol columns.
+    target_source = doc.source if not d.uri or d.uri == params.text_document.uri else document_loader(ls)(d.uri)
+    if target_source is None:
+        from .analysis import path_from_uri
 
-    # Find the word under cursor
-    # This is a bit basic: look for variable ${VAR} or command(
-
-    # 1. Check for variable usage $NAMESPACE{VAR}
-    # We look at the line and find the variable around the cursor
-    var_matches = re.finditer(r"\$([A-Za-z_]*)\{([A-Za-z0-9_.-]+)\}", line)
-    for match in var_matches:
-        if match.start() <= params.position.character <= match.end():
-            namespace = match.group(1)
-            var_name = match.group(2)
-
-            # Scoped variables only in empty namespace
-            if namespace == "":
-                defs = extract_definitions(doc.source, params.position.line)
-                if var_name in defs:
-                    d = defs[var_name]
-                    return Location(
-                        uri=params.text_document.uri,
-                        range=Range(
-                            start=Position(line=d.line, character=d.character),
-                            end=Position(
-                                line=d.line, character=d.character + len(d.name)
-                            ),
-                        ),
-                    )
-            elif namespace == "CACHE":
-                # Check for CACHE variable definitions
-                defs = extract_definitions(doc.source, params.position.line)
-                if var_name in defs:
-                    d = defs[var_name]
-                    return Location(
-                        uri=params.text_document.uri,
-                        range=Range(
-                            start=Position(line=d.line, character=d.character),
-                            end=Position(
-                                line=d.line, character=d.character + len(d.name)
-                            ),
-                        ),
-                    )
-
-    # 2. Check for function/macro call: func(
-    # Or just the word itself if it's a command
-    word_match = re.search(
-        r"([A-Za-z0-9_.-]+)",
-        line[params.position.character - 20 : params.position.character + 20],
+        target_path = path_from_uri(d.uri)
+        try:
+            target_source = target_path.read_text(encoding="utf-8-sig") if target_path is not None else ""
+        except (OSError, UnicodeError):
+            target_source = ""
+    lines = target_source.splitlines()
+    prefix = lines[d.line][: d.character] if d.line < len(lines) else ""
+    character = len(prefix.encode("utf-16-le")) // 2
+    return Location(
+        uri=d.uri or params.text_document.uri,
+        range=Range(
+            start=Position(line=d.line, character=character),
+            end=Position(line=d.line, character=character + len(d.name)),
+        ),
     )
-    # Better approach: find the full word at position
-
-    # Let's use a simpler "word at position"
-    pos = params.position.character
-    start = pos
-    while start > 0 and (line[start - 1].isalnum() or line[start - 1] in "_.-"):
-        start -= 1
-    end = pos
-    while end < len(line) and (line[end].isalnum() or line[end] in "_.-"):
-        end += 1
-
-    word = line[start:end]
-    if word:
-        defs = extract_definitions(doc.source, params.position.line)
-        # Check case-insensitive for functions/macros
-        if word.lower() in defs:
-            d = defs[word.lower()]
-            return Location(
-                uri=params.text_document.uri,
-                range=Range(
-                    start=Position(line=d.line, character=d.character),
-                    end=Position(line=d.line, character=d.character + len(d.name)),
-                ),
-            )
-
-    return None
 
 
-@server.feature(
-    TEXT_DOCUMENT_SIGNATURE_HELP, SignatureHelpOptions(trigger_characters=["(", ","])
-)
+@server.feature(TEXT_DOCUMENT_SIGNATURE_HELP, SignatureHelpOptions(trigger_characters=["(", " ", ","]))
 def signature_help(ls: CMakeLanguageServer, params: SignatureHelpParams):
-    doc = ls.workspace.get_text_document(params.text_document.uri)
-
-    # Guard against IndexError: doc.lines is a tuple and might be out of sync
-    if params.position.line >= len(doc.lines):
+    doc, offset = context(ls, params)
+    if offset is None or in_comment(doc.source, offset):
         return None
-
-    # Hide signature help in comments
-    if is_in_comment(doc.source, params.position.line, params.position.character):
+    command, args = active_command(doc.source, offset)
+    if command is None:
         return None
-
-    # We need to find the command we are currently in.
-    # We look backwards from the cursor for the nearest "command("
-    # that hasn't been closed yet.
-
-    offset = doc.offset_at_position(params.position)
-    source_before = doc.source[:offset]
-
-    # Simplified approach: find the last occurrence of something that looks like a command start
-    # We search for "name(" and then check if it's closed before the cursor.
-    # Note: this doesn't handle nested calls perfectly but should be better than what we had.
-
-    # Finding all command starts: [a-zA-Z0-9_]+\s*\(
-    matches = list(re.finditer(r"([A-Za-z0-9_]+)\s*\(", source_before))
-    if not matches:
+    result = at_cursor(ls, params, doc, offset)
+    name = command.name.lower()
+    d = result.commands.get(name)
+    specs = command_overloads(name, d)
+    signatures = [
+        SignatureInformation(
+            label=f"{d.name if d else command.name}({ov.signature})", documentation=markdown(ov.description)
+        )
+        for ov in specs
+    ]
+    if not signatures:
+        signatures = [SignatureInformation(label=sig) for sig in COMMAND_SIGNATURES.get(name, [])]
+    if not signatures:
         return None
-
-    # Iterate backwards from the last match
-    for match in reversed(matches):
-        cmd_name = match.group(1).lower()
-        if cmd_name not in COMMAND_SIGNATURES:
-            continue
-
-        # Check if this command is closed before the cursor
-        start_index = match.end()
-        content_after_open = source_before[start_index:]
-
-        # Count parentheses to see if we are still inside
-        paren_balance = 1
-        is_closed = False
-        for char in content_after_open:
-            if char == "(":
-                paren_balance += 1
-            elif char == ")":
-                paren_balance -= 1
-            if paren_balance == 0:
-                is_closed = True
-                break
-
-        if not is_closed:
-            # We are inside this command!
-            signatures = []
-
-            # 1. Check if it's a custom function/macro from extract_definitions
-            defs = extract_definitions(doc.source, params.position.line)
-            if cmd_name in defs:
-                d = defs[cmd_name]
-                if d.kind in ("function", "macro"):
-                    if d.signatures:
-                        for s in d.signatures:
-                            signatures.append(
-                                SignatureInformation(
-                                    label=f"{cmd_name}({s})",
-                                    documentation=MarkupContent(
-                                        kind=MarkupKind.Markdown,
-                                        value=d.description or f"Custom {d.kind}",
-                                    ),
-                                )
-                            )
-                    else:
-                        # Fallback: create signature from args
-                        sig_str = " ".join(d.args) if d.args else ""
-                        signatures.append(
-                            SignatureInformation(
-                                label=f"{cmd_name}({sig_str})",
-                                documentation=MarkupContent(
-                                    kind=MarkupKind.Markdown,
-                                    value=d.description or f"Custom {d.kind}",
-                                ),
-                            )
-                        )
-
-            # 2. Check built-in commands
-            if not signatures:
-                if cmd_name in COMMAND_SPECS:
-                    for ov in COMMAND_SPECS[cmd_name]:
-                        signatures.append(
-                            SignatureInformation(
-                                label=f"{cmd_name}({ov['sig']})",
-                                documentation=MarkupContent(
-                                    kind=MarkupKind.Markdown, value=ov["desc"]
-                                ),
-                            )
-                        )
-                elif cmd_name in COMMAND_SIGNATURES:
-                    signatures = [
-                        SignatureInformation(label=sig)
-                        for sig in COMMAND_SIGNATURES[cmd_name]
-                    ]
-
-            if signatures:
-                return SignatureHelp(
-                    signatures=signatures, active_signature=0, active_parameter=0
-                )
-
-    return None
+    scores = []
+    for ov in specs:
+        states, _ = ov.matcher._walk(args)
+        scores.append(max((score for score, _ in states.values()), default=-1))
+    active = max(range(len(scores)), key=scores.__getitem__) if scores else 0
+    return SignatureHelp(signatures=signatures, active_signature=active, active_parameter=0)
 
 
 @server.feature(TEXT_DOCUMENT_HOVER)
 def hover(ls: CMakeLanguageServer, params: HoverParams):
-    doc = ls.workspace.get_text_document(params.text_document.uri)
-    line = doc.lines[params.position.line]
-
-    # Find word at position
-    pos = params.position.character
-    start = pos
-    while start > 0 and (line[start - 1].isalnum() or line[start - 1] in "_.-"):
-        start -= 1
-    end = pos
-    while end < len(line) and (line[end].isalnum() or line[end] in "_.-"):
-        end += 1
-
-    word = line[start:end]
-
-    # Check for variable usage with namespace: $NS{VAR}
-    from .constants import VARIABLE_NAMESPACES
-
-    var_matches = re.finditer(r"\$([A-Za-z_]*)\{([A-Za-z0-9_.-]+)\}", line)
-    for match in var_matches:
-        if match.start() <= params.position.character <= match.end():
-            namespace = match.group(1)
-            var_name = match.group(2)
-
-            if (
-                namespace in VARIABLE_NAMESPACES
-                and var_name in VARIABLE_NAMESPACES[namespace]
-            ):
-                label = f"${namespace}{{{var_name}}}"
-                return Hover(
-                    contents=MarkupContent(
-                        kind=MarkupKind.Markdown,
-                        value=f"**{label}**\n\n{VARIABLE_NAMESPACES[namespace][var_name]}",
-                    )
-                )
-
-    if word in BUILTIN_VARIABLES:
-        return Hover(
-            contents=MarkupContent(
-                kind=MarkupKind.Markdown,
-                value=f"**{word}**\n\n{BUILTIN_VARIABLES[word]}",
+    doc, offset = context(ls, params)
+    if offset is None or in_comment(doc.source, offset):
+        return None
+    result = at_cursor(ls, params, doc, offset)
+    d = symbol_at(result, doc.source, offset)
+    if d:
+        if d.kind in ("function", "macro"):
+            content = "\n\n---\n\n".join(
+                f"```cmake\n{d.name}({ov.signature})\n```\n\n{ov.description}" for ov in d.overloads
             )
-        )
-
+        else:
+            content = f"**{d.name}**\n\n{d.description or ''}"
+        return Hover(contents=markdown(content))
+    word = word_at(doc.source, offset)
+    # Namespace variables retain their built-in documentation.
+    for match in re.finditer(r"\$([A-Za-z_]*)\{([A-Za-z0-9_.-]+)\}", doc.source):
+        if match.start() <= offset <= match.end():
+            namespace, name = match.groups()
+            desc = VARIABLE_NAMESPACES.get(namespace, {}).get(name)
+            if desc:
+                return Hover(contents=markdown(f"**${namespace}{{{name}}}**\n\n{desc}"))
+    if word in BUILTIN_VARIABLES:
+        return Hover(contents=markdown(f"**{word}**\n\n{BUILTIN_VARIABLES[word]}"))
     return None
 
 
@@ -437,13 +252,17 @@ def did_open(ls: CMakeLanguageServer, params: DidOpenTextDocumentParams):
 @server.feature(TEXT_DOCUMENT_DID_CHANGE)
 def did_change(ls: CMakeLanguageServer, params: DidChangeTextDocumentParams):
     validate(ls, params.text_document.uri)
+    # An edited annotation file may change any open consumer's diagnostics.
+    documents = getattr(ls.workspace, "text_documents", {})
+    if isinstance(documents, dict):
+        for uri in list(documents):
+            if uri != params.text_document.uri:
+                validate(ls, uri)
 
 
 def validate(ls: CMakeLanguageServer, uri: str):
     from .linting import lint_cmake
 
     doc = ls.workspace.get_text_document(uri)
-    diagnostics = lint_cmake(doc.source)
-    ls.text_document_publish_diagnostics(
-        PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics)
-    )
+    diagnostics = lint_cmake(doc.source, uri=uri, loader=document_loader(ls))
+    ls.text_document_publish_diagnostics(PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics))
