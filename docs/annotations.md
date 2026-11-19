@@ -16,7 +16,8 @@ strings cannot contain annotations.
 
 Function names are case-insensitive, with their declared spelling retained.
 All unprefixed signature tokens are case-sensitive literals. `?name` accepts
-any argument; `&name` also marks a possible variable definition. Angle brackets
+any argument; `&name` marks a possible variable definition, and `:name` suggests
+visible variable names without defining one. Angle brackets
 require their contents; square brackets make their contents optional as a unit.
 Groups can nest. `|` separates literal alternatives, with optional surrounding
 whitespace. `<FOO>` is equivalent to `FOO`.
@@ -43,12 +44,33 @@ such as `${mode}` are uncertain matches. Variable effects require agreement
 among equally specific matching overloads; completions combine the possibilities
 from all viable overloads, including partially entered groups.
 
-`&name` suggests existing visible variables. It defines a variable after a
+`&name` suggests visible variable names and defines a variable after a
 successful call only for an unquoted literal variable name matching
 `[A-Za-z_][A-Za-z0-9_.-]*`. Quoted strings, bracket arguments, and names containing
 expansions do not create inferred variables. An existing definition in the
 destination scope is retained; a local definition can shadow an outer variable.
 Executable `set()` and `unset()` retain their built-in scope handling.
+
+Named symbol namespaces are created implicitly by annotations. They are separate
+from language variables; no namespace name (including `v` or `t`) is reserved.
+`namespace&name` defines a symbol, while `namespace:name` suggests known symbols
+without requiring the argument to name an existing symbol. Definition placeholders
+also suggest existing names from their namespace; `:` only suggests names.
+
+```cmake
+## function(add_executable <t&target> [WIN32] [?src]...)
+## function(target_compile_definitions <t:target> <?visibility> [?definition]...)
+```
+
+Namespace names are case-sensitive identifiers (`[A-Za-z_][A-Za-z0-9_]*`).
+Symbols are global once analyzed, including definitions inside functions and
+imports. LSP suggestions combine symbols from documents seen during the session,
+independently of cursor position. Closed documents retain their last seen source;
+edits to open documents remove stale names. Symbol definitions accept nonempty
+unquoted literal arguments, including names such as `package::target`, but not
+expansions, bracket arguments, or escaped names. Variable definitions retain
+their stricter name grammar and scope rules. Equally specific matching overloads
+must agree on both namespace and argument before defining a symbol.
 
 Variables can be documented without executing a command:
 

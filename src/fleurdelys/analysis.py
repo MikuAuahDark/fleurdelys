@@ -37,6 +37,7 @@ class Analysis:
     definitions: dict = field(default_factory=dict)
     commands: dict = field(default_factory=dict)
     issues: list = field(default_factory=list)
+    symbols: dict = field(default_factory=dict)
 
 
 @lru_cache(maxsize=256)
@@ -244,12 +245,13 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
                 score = max(m.score for m in matches)
                 best = [m.definitions for m in matches if m.score == score]
                 effects = set.intersection(*best)
-                for index in effects:
+                for namespace, index in effects:
                     name = args[index]
-                    if name not in tracker.current.variables:
+                    destination = result.symbols.setdefault(namespace, {}) if namespace else tracker.current.variables
+                    if name not in destination:
                         token = event.args[index]
                         line, character = position(starts, token.start)
-                        tracker.set_variable(name, Definition(name, line, character, "variable", uri=file_uri))
+                        destination[name] = Definition(name, line, character, "symbol" if namespace else "variable", uri=file_uri)
 
             if cmd == "include":
                 include(args, event, starts, file_uri)

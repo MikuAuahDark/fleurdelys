@@ -75,8 +75,27 @@ def context(ls, params):
     return doc, offset
 
 
+def symbol_sources(ls, doc):
+    sources = getattr(ls, "_symbol_sources", None)
+    if not isinstance(sources, dict):
+        sources = {}
+        ls._symbol_sources = sources
+    documents = getattr(ls.workspace, "text_documents", {})
+    if isinstance(documents, dict):
+        sources.update({uri: item.source for uri, item in documents.items() if isinstance(item.source, str)})
+    sources[doc.uri] = doc.source
+    return sources
+
+
 def at_cursor(ls, params, doc, offset):
-    return analyze(doc.source, uri=params.text_document.uri, position_offset=offset, loader=document_loader(ls))
+    loader = document_loader(ls)
+    result = analyze(doc.source, uri=params.text_document.uri, position_offset=offset, loader=loader)
+    # Keep the last seen source of closed documents, but refresh live sources so
+    # edits remove stale names. Symbols are independent of scopes and cursor position.
+    for uri, source in symbol_sources(ls, doc).items():
+        for namespace, symbols in analyze(source, uri=uri, loader=loader).symbols.items():
+            result.symbols.setdefault(namespace, {}).update(symbols)
+    return result
 
 
 @server.feature(TEXT_DOCUMENT_COMPLETION, CompletionOptions(trigger_characters=["{", "(", " "]))
@@ -112,7 +131,7 @@ def completions(ls: CMakeLanguageServer, params: CompletionParams):
         variables = set(BUILTIN_VARIABLES) | set(result.definitions)
         keywords = set()
         for overload in specs:
-            keywords.update(overload.matcher.get_completions(args, variables))
+            keywords.update(overload.matcher.get_completions(args, variables, result.symbols))
         return CompletionList(
             is_incomplete=False,
             items=[
@@ -262,5 +281,6 @@ def validate(ls: CMakeLanguageServer, uri: str):
     from .linting import lint_cmake
 
     doc = ls.workspace.get_text_document(uri)
+    symbol_sources(ls, doc)
     diagnostics = lint_cmake(doc.source, uri=uri, loader=document_loader(ls))
     ls.text_document_publish_diagnostics(PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics))

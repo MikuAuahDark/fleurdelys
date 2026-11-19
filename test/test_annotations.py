@@ -43,7 +43,7 @@ class GrammarTests(unittest.TestCase):
     def test_backtracking_and_ambiguous_effects(self):
         matcher = self.matcher("[&output] [?input]")
         self.assertEqual(matcher.match(["X"]).definitions, set())
-        self.assertEqual(matcher.match(["X", "Y"]).definitions, {0})
+        self.assertEqual(matcher.match(["X", "Y"]).definitions, {("", 0)})
         self.assertEqual(self.matcher("[?arg]... END").get_completions(["a"]), ["END"])
 
     def test_dynamic_and_quoted_arguments(self):
@@ -63,8 +63,49 @@ class GrammarTests(unittest.TestCase):
             with self.subTest(signature=signature), self.assertRaises(ValueError):
                 self.matcher(signature)
 
+    def test_namespaces_and_suggestions(self):
+        symbols = {"t": {"app"}, "v": {"ordinary_symbol"}}
+        for signature, expected in (("<:value>", ["LOCAL"]), ("<&value>", ["LOCAL"]), ("<t:target>", ["app"]), ("<v:value>", ["ordinary_symbol"]), ("<?value>", []), ("<t&target>", ["app"])):
+            with self.subTest(signature=signature):
+                matcher = self.matcher(signature)
+                self.assertEqual(matcher.get_completions([], ["LOCAL"], symbols), expected)
+                self.assertTrue(matcher.match(["unknown"]).success)
+        self.assertEqual(self.matcher("<t&target>").match(["pkg::target"]).definitions, {("t", 0)})
+        self.assertFalse(self.matcher("<t&target>").match(['"app"']).definitions)
+        self.assertFalse(self.matcher("<t&target>").match(["${name}"]).definitions)
+        for signature in ("<:>", "<t&>", "<t?name>", "<t:bad:name>", "<FOO|t:name>"):
+            with self.subTest(signature=signature), self.assertRaises(ValueError):
+                self.matcher(signature)
+
 
 class AnalysisTests(unittest.TestCase):
+    def test_symbols_are_global_and_separate_from_variables(self):
+        source = """## function(create <t&name>)
+## function(other <v&name>)
+function(f)
+set(LOCAL 1)
+create(app)
+other(app)
+endfunction()
+"""
+        result = analyze(source)
+        self.assertEqual(set(result.symbols), {"t", "v"})
+        self.assertIn("app", result.symbols["t"])
+        self.assertIn("app", result.symbols["v"])
+        self.assertNotIn("app", result.definitions)
+        self.assertNotIn("LOCAL", result.definitions)
+        self.assertFalse(result.issues)
+        ambiguous = analyze("## function(f <t&name>)\n## function(f <v&name>)\nf(app)\n")
+        self.assertFalse(ambiguous.symbols)
+
+    def test_cmake_target_annotations(self):
+        annotations = CORE_ANNOTATIONS.with_name("cmake.cmake")
+        source = f'## include("{annotations.as_posix()}")\nadd_executable(foo WIN32 program.cpp)\ntarget_compile_definitions(foo PRIVATE FLAG)\n'
+        result = analyze(source, uri=Path("main.cmake").resolve().as_uri())
+        self.assertIn("foo", result.symbols["t"])
+        self.assertNotIn("foo", result.definitions)
+        self.assertFalse(result.issues)
+
     def test_core_preloaded_for_each_unit_and_cursor(self):
         for options in ({}, {"uri": "untitled:example"}, {"position_offset": 0}, {"position_line": 0}):
             with self.subTest(options=options):
@@ -232,7 +273,7 @@ message([[${not_a_reference} # comment]])
 class IncludeTests(unittest.TestCase):
     def test_transitive_relative_cycle_and_deduplication(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             (root / "sub").mkdir()
             (root / "sub" / "a.cmake").write_text('## include(../b.cmake)\n## function(imported FOO)\nfunction(ordinary X)\nset(HIDDEN 1)\nendfunction()\n', encoding="utf-8")
             (root / "b.cmake").write_text('## include(sub/a.cmake)\n## Description.\n## set(IMPORTED 1)\n', encoding="utf-8")
@@ -247,7 +288,7 @@ class IncludeTests(unittest.TestCase):
 
     def test_dynamic_and_missing_includes(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             (root / "a.cmake").write_text("## function(loaded FOO)\n", encoding="utf-8")
             source = 'set(PATH a.cmake)\ninclude(${PATH})\ninclude(${unknown})\ninclude(missing.cmake OPTIONAL)\n'
             result = analyze(source, uri=(root / "main.cmake").as_uri())
@@ -259,7 +300,7 @@ class IncludeTests(unittest.TestCase):
 
     def test_include_visibility_and_live_loader(self):
         with tempfile.TemporaryDirectory() as directory:
-            uri = (Path(directory) / "main.cmake").as_uri()
+            uri = (Path(directory).resolve() / "main.cmake").as_uri()
             loader = lambda target: None if target == CORE_ANNOTATIONS.as_uri() else "## function(local FOO)\n"
             source = "function(test)\n## include(a.cmake)\nlocal(FOO)\nendfunction()\n"
             result = analyze(source, uri=uri, loader=loader)
@@ -270,7 +311,7 @@ class IncludeTests(unittest.TestCase):
 
     def test_current_list_directory_and_repeated_import_in_distinct_scopes(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             (root / "a.cmake").write_text("## function(local FOO)\n", encoding="utf-8")
             uri = (root / "main.cmake").as_uri()
             source = 'function(first)\ninclude("${CMAKE_CURRENT_LIST_DIR}/a.cmake")\nendfunction()\nfunction(second)\ninclude("${CMAKE_CURRENT_LIST_DIR}/a.cmake")\n'
@@ -311,9 +352,53 @@ class LspTests(unittest.TestCase):
         source = "## function(f FOO)\n## function(f BAR)\nf("
         result = self.call(completions, CompletionParams, source)
         self.assertEqual([i.label for i in result.items], ["BAR", "FOO"])
-        source = "## function(f <&var>)\nset(EXISTING 1)\nf("
+        source = "## function(f <:var>)\nset(EXISTING 1)\nf("
         result = self.call(completions, CompletionParams, source)
         self.assertIn("EXISTING", [i.label for i in result.items])
+
+    def test_symbol_completions_across_documents_and_edits(self):
+        uri = "file:///targets.cmake"
+        documents = {uri: TextDocument(uri=uri, source="## function(create <t&name>)\nfunction(f)\ncreate(app)\nendfunction()\n")}
+        source = "## function(use <t:name>)\nset(VARIABLE 1)\nuse("
+        result = self.call(completions, CompletionParams, source, documents=documents)
+        self.assertEqual([i.label for i in result.items], ["app"])
+        documents[uri] = TextDocument(uri=uri, source="")
+        result = self.call(completions, CompletionParams, source, documents=documents)
+        self.assertEqual(result.items, [])
+
+    def test_closed_document_symbols_are_retained_until_edited(self):
+        uri = "file:///targets.cmake"
+        doc = TextDocument(uri=uri, source="## function(use <t:name>)\nuse(")
+        ls = MagicMock()
+        ls.workspace.get_text_document.return_value = doc
+        ls.workspace.text_documents = {
+            "file:///other.cmake": TextDocument(uri="file:///other.cmake", source="## function(create <t&name>)\ncreate(app)\n")
+        }
+        params = CompletionParams(text_document=TextDocumentIdentifier(uri=uri), position=Position(line=1, character=4))
+        self.assertEqual([item.label for item in completions(ls, params).items], ["app"])
+        ls.workspace.text_documents = {}
+        self.assertEqual([item.label for item in completions(ls, params).items], ["app"])
+        ls.workspace.text_documents = {"file:///other.cmake": TextDocument(uri="file:///other.cmake", source="")}
+        self.assertEqual(completions(ls, params).items, [])
+
+    def test_variable_suggestions_respect_scope(self):
+        source = "## function(use <:name>)\nfunction(f)\nset(LOCAL 1)\nendfunction()\nuse("
+        result = self.call(completions, CompletionParams, source)
+        self.assertNotIn("LOCAL", [i.label for i in result.items])
+
+    def test_definition_placeholders_also_suggest(self):
+        for operator in ("&", ":"):
+            source = f"## function(create <t&name>)\n## function(use <t{operator}name>)\ncreate(app)\nuse("
+            result = self.call(completions, CompletionParams, source)
+            self.assertEqual([i.label for i in result.items], ["app"])
+
+    def test_symbols_visible_before_cursor_and_from_imports(self):
+        uri = Path("main.cmake").resolve().as_uri()
+        imported_uri = Path("targets.cmake").resolve().as_uri()
+        documents = {imported_uri: TextDocument(uri=imported_uri, source="## function(create <t&name>)\ncreate(imported)\n")}
+        source = "## function(use <t:name>)\nuse(\n)\n## include(targets.cmake)\n"
+        result = self.call(completions, CompletionParams, source, line=1, character=4, uri=uri, documents=documents)
+        self.assertEqual([i.label for i in result.items], ["imported"])
 
     def test_custom_signature_and_hover_markdown(self):
         source = "## **First**.\n## function(Mixed FOO)\n## Second.\n## function(mixed BAR)\nfunction(mixed A B)\nendfunction()\nMIXED("
@@ -326,7 +411,7 @@ class LspTests(unittest.TestCase):
 
     def test_imported_definition_and_unsaved_annotation(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             uri = (root / "main.cmake").as_uri()
             imported_uri = (root / "a.cmake").as_uri()
             documents = {imported_uri: TextDocument(uri=imported_uri, source="## **Imported**.\n## function(Imported FOO)\n")}

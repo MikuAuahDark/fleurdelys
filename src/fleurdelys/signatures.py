@@ -22,7 +22,9 @@ class Choice(SignatureElement):
 @dataclass
 class Placeholder(SignatureElement):
     name: str
-    defines_variable: bool = False
+    defines: bool = False
+    namespace: str = ""
+    suggests: bool = False
 
 
 @dataclass
@@ -62,10 +64,12 @@ class SignatureParser:
                 element = Group(inner, token == "<")
             elif token in ("|", "..."):
                 raise ValueError(f"Unexpected '{token}'")
-            elif token.startswith(("?", "&")):
-                if not re.fullmatch(r"[?&][A-Za-z_][A-Za-z0-9_.-]*", token):
+            elif re.search(r"[?&:]", token):
+                placeholder = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*|)([?&:])([A-Za-z_][A-Za-z0-9_.-]*)", token)
+                if not placeholder or (placeholder[2] == "?" and placeholder[1]):
                     raise ValueError("Invalid argument name")
-                element = Placeholder(token[1:], token.startswith("&"))
+                namespace, operator, name = placeholder.groups()
+                element = Placeholder(name, operator == "&", namespace, operator in ("&", ":"))
             elif self.legacy and ((angle and "|" not in self.tokens[self.pos: self._closing_index()]) or not token.isupper()):
                 element = Placeholder(token)
             else:
@@ -80,7 +84,7 @@ class SignatureParser:
                     if self.pos >= len(self.tokens):
                         raise ValueError("Missing alternative")
                     alternative = self.tokens[self.pos]
-                    if alternative in ("<", ">", "[", "]", "|", "...") or alternative.startswith(("?", "&")):
+                    if alternative in ("<", ">", "[", "]", "|", "...") or re.search(r"[?&:]", alternative):
                         raise ValueError("Alternatives must be literals")
                     choices.append(alternative)
                     self.pos += 1
@@ -121,6 +125,10 @@ def dynamic_argument(arg):
     if re.match(r"\[(=*)\[", arg):
         return False
     return bool(re.search(r"(?<!\\)\$(?:\{|[A-Za-z_]+\{)", arg))
+
+
+def symbol_candidate(arg):
+    return bool(arg) and not dynamic_argument(arg) and not arg.startswith(('"', '[')) and "\\" not in arg
 
 
 @dataclass
@@ -208,8 +216,10 @@ class SignatureMatcher:
                         matches = matches or value in element.choices
                     if matches:
                         effects = definitions
-                        if isinstance(element, Placeholder) and element.defines_variable and variable_candidate(arg):
-                            effects = definitions | {index}
+                        if isinstance(element, Placeholder) and element.defines:
+                            candidate = symbol_candidate(arg) if element.namespace else variable_candidate(arg)
+                            if candidate:
+                                effects = definitions | {(element.namespace, index)}
                         self._merge(next_states, target, score + int(literal and not dynamic), effects)
             states = self._closure(next_states)
             if not states:
@@ -223,7 +233,7 @@ class SignatureMatcher:
         score, definitions = states[self.end]
         return SignatureMatchResult(True, score=score, definitions=set(definitions))
 
-    def get_completions(self, args, variables=()):
+    def get_completions(self, args, variables=(), symbols=None):
         states, _ = self._walk(args)
         result = set()
         for state in states:
@@ -232,6 +242,6 @@ class SignatureMatcher:
                     result.add(element.value)
                 elif isinstance(element, Choice):
                     result.update(element.choices)
-                elif isinstance(element, Placeholder) and element.defines_variable:
-                    result.update(variables)
+                elif isinstance(element, Placeholder) and element.suggests:
+                    result.update((symbols or {}).get(element.namespace, ()) if element.namespace else variables)
         return sorted(result)
