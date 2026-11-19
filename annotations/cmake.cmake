@@ -1,5 +1,5 @@
 # Additional annotations for normal CMake execution.
-# Import with ## include(path/to/cmake.cmake); core.cmake is imported below.
+# Import with ## include(path/to/cmake.cmake); the analyzer preloads core.cmake.
 # Covers cache, compatibility policies, configuration, properties, discovery,
 # diagnostics, host queries and CMake runtime settings moved out of the DSL core.
 # Includes project setup, target usage requirements, build rules, installation and testing.
