@@ -7,7 +7,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
-from .constants import BUILTIN_VARIABLES, CORE_ANNOTATIONS, VARIABLE_NAMESPACES
+from .constants import BUILTIN_VARIABLES, CORE_ANNOTATIONS, CMAKE_ANNOTATIONS, VARIABLE_NAMESPACES
+from .options import AnnotationOptions
 from .signatures import SignatureParser, SignatureMatcher, argument_value, variable_candidate, symbol_candidate
 from .syntax import Command, Comment, scan, line_starts, position
 from .utils import Definition, ScopeTracker
@@ -38,6 +39,7 @@ class Analysis:
     commands: dict = field(default_factory=dict)
     issues: list = field(default_factory=list)
     symbols: dict = field(default_factory=dict)
+    source_symbols: dict = field(default_factory=dict)
 
 
 @lru_cache(maxsize=256)
@@ -65,11 +67,20 @@ def path_from_uri(uri):
     return None
 
 
-def analyze(source, uri=None, position_line=None, loader=None, position_offset=None):
+def analyze(source, uri=None, position_line=None, loader=None, position_offset=None,
+            options=AnnotationOptions(), report=None):
     result = Analysis()
     tracker = ScopeTracker()
     core_uri = CORE_ANNOTATIONS.as_uri()
     visiting, imported, declarations = set(), set(), set()
+    layer = 0
+
+    def report_failure(message):
+        if report is not None:
+            report(message)
+        else:
+            import logging
+            logging.getLogger(__name__).warning(message)
 
     def issue(file_uri, starts, offset, message, warning=True):
         line, character = position(starts, offset)
@@ -80,7 +91,8 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
         if isinstance(event, Command) and event.args:
             offset = event.args[0].start
         line, character = position(starts, offset)
-        return Definition(name, line, character, kind, description=description, uri=file_uri)
+        return Definition(name, line, character, kind, description=description, uri=file_uri,
+                          annotation_layer=layer)
 
     def expand(value, file_uri):
         current_path = path_from_uri(file_uri)
@@ -190,7 +202,7 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
             return
         declarations.add(key)
         previous = tracker.current.commands.get(name.lower())
-        if previous and previous.uri == core_uri and file_uri != core_uri:
+        if previous and previous.annotation_layer != layer:
             previous = None
         if previous is None or not previous.signatures:
             d = definition(name, "function", event, starts, file_uri, description)
@@ -267,7 +279,7 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
                     if name not in destination:
                         token = event.args[index]
                         line, character = position(starts, token.start)
-                        destination[name] = Definition(name, line, character, "symbol" if namespace else "variable", uri=file_uri)
+                        destination[name] = Definition(name, line, character, "symbol" if namespace else "variable", uri=file_uri, annotation_layer=layer)
 
             if cmd == "include":
                 include(args, event, starts, file_uri)
@@ -285,7 +297,7 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
             elif cmd in ("function", "macro") and args:
                 name = values[0]
                 existing = tracker.command(name)
-                if existing and existing.uri == core_uri and file_uri != core_uri:
+                if existing and existing.annotation_layer != layer:
                     existing = None
                 d = definition(name, cmd, event, starts, file_uri, description)
                 d.args = values[1:]
@@ -355,13 +367,41 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
     if position_line is not None:
         starts = line_starts(source)
         limit = starts[position_line] if position_line < len(starts) else len(source)
-    if uri != core_uri:
-        core_source = loader(core_uri) if loader else None
-        if core_source is None:
-            core_source = CORE_ANNOTATIONS.read_text(encoding="utf-8-sig")
-        imported.add((core_uri, tracker.current))
-        visit(core_source, core_uri)
+    packs = [(CORE_ANNOTATIONS, True)]
+    if options.enable_cmake_annotations:
+        packs.append((CMAKE_ANNOTATIONS, True))
+    packs.extend((Path(path), False) for path in options.additional_annotations)
+    for path, bundled in packs:
+        path = path.resolve()
+        pack_uri = path.as_uri()
+        if pack_uri == uri or (pack_uri, tracker.current) in imported:
+            continue
+        layer += 1
+        try:
+            content = loader(pack_uri) if loader else None
+            if content is None:
+                content = path.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeError, ValueError) as error:
+            kind = "Bundled annotation resource (repair the installation)" if bundled else "Optional annotation file"
+            report_failure(f"{kind} '{path}' could not be read: {error}")
+            continue
+        imported.add((pack_uri, tracker.current))
+        first_issue = len(result.issues)
+        visit(content, pack_uri)
+        # An unclosed block in an optional pack must not capture later packs
+        # or the consumer in its scope.
+        while len(tracker.stack) > 1:
+            tracker.pop_scope()
+        while tracker.current.macro_stack:
+            tracker.pop_macro_args()
+        for problem in result.issues[first_issue:]:
+            report_failure(f"Annotation {problem.uri}:{problem.line + 1}: {problem.message}")
+    layer += 1
     visit(source, uri, limit)
     result.definitions = tracker.all_visible_variables()
     result.commands = tracker.all_visible_commands()
+    result.source_symbols = {
+        namespace: {name: d for name, d in symbols.items() if d.annotation_layer == layer}
+        for namespace, symbols in result.symbols.items()
+    }
     return result

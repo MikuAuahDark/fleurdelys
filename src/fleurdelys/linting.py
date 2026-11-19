@@ -3,8 +3,8 @@ from lsprotocol.types import Diagnostic, DiagnosticSeverity, Range, Position
 from .analysis import analyze
 
 
-def lint_cmake(source, uri=None, loader=None):
-    result = analyze(source, uri=uri, loader=loader)
+def lint_cmake(source, uri=None, loader=None, **kwargs):
+    result = analyze(source, uri=uri, loader=loader, **kwargs)
     lines = source.splitlines()
 
     def protocol_character(issue):

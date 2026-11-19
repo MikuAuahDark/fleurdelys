@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 
 from pygls.lsp.server import LanguageServer
 from lsprotocol.types import (
@@ -28,19 +29,114 @@ from lsprotocol.types import (
     Location,
     Range,
     Position,
+    INITIALIZE,
+    WORKSPACE_DID_CHANGE_CONFIGURATION,
+    WORKSPACE_DID_CHANGE_WATCHED_FILES,
+    TEXT_DOCUMENT_DID_SAVE,
+    TEXT_DOCUMENT_DID_CLOSE,
+    MessageType,
+    LogMessageParams,
 )
 
 from .analysis import analyze, command_overloads
 from .constants import BUILTIN_VARIABLES, VARIABLE_NAMESPACES
 from .syntax import active_command, in_comment, line_starts
+from .options import AnnotationOptions, configuration
+from .analysis import path_from_uri
 
 
 class CMakeLanguageServer(LanguageServer):
     def __init__(self):
         super().__init__("cmake-ls", "0.1.0")
+        self.annotation_defaults = AnnotationOptions()
+        self.annotation_settings = {}
+        self.annotation_roots = []
+        self.annotation_warnings = set()
+
+    def annotation_warning(self, message):
+        if message not in self.annotation_warnings:
+            self.annotation_warnings.add(message)
+            self.window_log_message(LogMessageParams(type=MessageType.Warning, message=message))
+
+    def analysis_options(self, uri):
+        path = path_from_uri(uri)
+        roots = []
+        if path is not None:
+            path = path.resolve()
+            for root in self.annotation_roots:
+                try:
+                    path.relative_to(root)
+                    roots.append(root)
+                except ValueError:
+                    pass
+        base = max(roots, key=lambda root: len(root.parts)) if roots else None
+        return configuration(self.annotation_settings, self.annotation_defaults, base, self.annotation_warning)
 
 
 server = CMakeLanguageServer()
+
+
+def analysis_arguments(ls, uri):
+    if isinstance(ls, CMakeLanguageServer):
+        return {"options": ls.analysis_options(uri), "report": ls.annotation_warning}
+    return {}
+
+
+@server.feature(INITIALIZE)
+def initialize(ls, params):
+    ls.annotation_settings = params.initialization_options or {}
+    folders = params.workspace_folders or []
+    uris = [folder.uri for folder in folders]
+    if not uris and params.root_uri:
+        uris = [params.root_uri]
+    elif not uris and params.root_path:
+        uris = [Path(params.root_path).resolve().as_uri()]
+    ls.annotation_roots = [path_from_uri(uri).resolve() for uri in uris if path_from_uri(uri) is not None]
+
+
+def revalidate_all(ls):
+    documents = getattr(ls.workspace, "text_documents", {})
+    for uri in list(documents):
+        validate(ls, uri)
+
+
+@server.feature(WORKSPACE_DID_CHANGE_CONFIGURATION)
+def configuration_changed(ls, params):
+    ls.annotation_settings = params.settings
+    ls.annotation_warnings.clear()
+    revalidate_all(ls)
+
+
+def refresh_remembered_source(ls, uri):
+    sources = getattr(ls, "_symbol_sources", {})
+    if uri not in sources:
+        return
+    path = path_from_uri(uri)
+    try:
+        sources[uri] = path.read_text(encoding="utf-8-sig") if path else ""
+    except (OSError, UnicodeError, ValueError):
+        sources.pop(uri, None)
+
+
+@server.feature(WORKSPACE_DID_CHANGE_WATCHED_FILES)
+def watched_files_changed(ls, params):
+    ls.annotation_warnings.clear()
+    for change in params.changes:
+        refresh_remembered_source(ls, change.uri)
+    revalidate_all(ls)
+
+
+@server.feature(TEXT_DOCUMENT_DID_SAVE)
+def did_save(ls, params):
+    ls.annotation_warnings.clear()
+    revalidate_all(ls)
+
+
+@server.feature(TEXT_DOCUMENT_DID_CLOSE)
+def did_close(ls, params):
+    refresh_remembered_source(ls, params.text_document.uri)
+    ls.annotation_warnings.clear()
+    revalidate_all(ls)
 
 
 def markdown(value):
@@ -89,11 +185,12 @@ def symbol_sources(ls, doc):
 
 def at_cursor(ls, params, doc, offset):
     loader = document_loader(ls)
-    result = analyze(doc.source, uri=params.text_document.uri, position_offset=offset, loader=loader)
+    result = analyze(doc.source, uri=params.text_document.uri, position_offset=offset, loader=loader,
+                     **analysis_arguments(ls, doc.uri))
     # Keep the last seen source of closed documents, but refresh live sources so
     # edits remove stale names. Symbols are independent of scopes and cursor position.
     for uri, source in symbol_sources(ls, doc).items():
-        for namespace, symbols in analyze(source, uri=uri, loader=loader).symbols.items():
+        for namespace, symbols in analyze(source, uri=uri, loader=loader, **analysis_arguments(ls, uri)).source_symbols.items():
             result.symbols.setdefault(namespace, {}).update(symbols)
     return result
 
@@ -263,11 +360,13 @@ def hover(ls: CMakeLanguageServer, params: HoverParams):
 
 @server.feature(TEXT_DOCUMENT_DID_OPEN)
 def did_open(ls: CMakeLanguageServer, params: DidOpenTextDocumentParams):
-    validate(ls, params.text_document.uri)
+    revalidate_all(ls)
 
 
 @server.feature(TEXT_DOCUMENT_DID_CHANGE)
 def did_change(ls: CMakeLanguageServer, params: DidChangeTextDocumentParams):
+    if isinstance(ls, CMakeLanguageServer):
+        ls.annotation_warnings.clear()
     validate(ls, params.text_document.uri)
     # An edited annotation file may change any open consumer's diagnostics.
     documents = getattr(ls.workspace, "text_documents", {})
@@ -282,5 +381,5 @@ def validate(ls: CMakeLanguageServer, uri: str):
 
     doc = ls.workspace.get_text_document(uri)
     symbol_sources(ls, doc)
-    diagnostics = lint_cmake(doc.source, uri=uri, loader=document_loader(ls))
+    diagnostics = lint_cmake(doc.source, uri=uri, loader=document_loader(ls), **analysis_arguments(ls, uri))
     ls.text_document_publish_diagnostics(PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics))

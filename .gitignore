@@ -2,3 +2,6 @@
 .venv/
 venv/
 *.pyc
+.test-tmp/
+build/
+dist/

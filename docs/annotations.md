@@ -118,15 +118,18 @@ the official CMake 4.4 manual and links to each entry's documentation:
 - `annotations/core.cmake` contains general-purpose language utilities for DSL
   usage: control flow, normal variables, strings, lists, files, paths, processes,
   metaprogramming, and list-file, function and regular-expression context.
-- `annotations/cmake.cmake` imports `core.cmake` and adds interfaces for normal
+- `annotations/cmake.cmake` adds interfaces for normal
   CMake execution: cache entries, policies, configuration, properties, discovery,
   generator-expression stripping, diagnostics, host queries and runtime settings.
   It is not yet a complete catalogue of project/build-system commands.
 
 Import the additional CMake interfaces with
 `## include(relative/path/to/annotations/cmake.cmake)`, relative to your file.
-Importing `cmake.cmake` alone includes both sets. Loaded find modules or package
+Core is preloaded independently by the analyzer. Loaded find modules or package
 configurations may require a project. Runtime version requirements still apply;
 the annotations do not implement commands.
 
 The former `##cmake-ls:` directives are no longer supported.
+
+For automatic CMake/external pack loading, CLI and editor settings, precedence,
+and standalone packaging, see [annotation loading](annotation-loading.md).

@@ -50,6 +50,8 @@ VARIABLE_NAMESPACES = {
 
 # Wheels bundle the annotations inside the package; source checkouts keep them
 # at the repository root.
-CORE_ANNOTATIONS = Path(__file__).resolve().parent / "annotations" / "core.cmake"
-if not CORE_ANNOTATIONS.is_file():
-    CORE_ANNOTATIONS = Path(__file__).resolve().parents[2] / "annotations" / "core.cmake"
+ANNOTATIONS = Path(__file__).resolve().parent / "annotations"
+if not ANNOTATIONS.is_dir():
+    ANNOTATIONS = Path(__file__).resolve().parents[2] / "annotations"
+CORE_ANNOTATIONS = ANNOTATIONS / "core.cmake"
+CMAKE_ANNOTATIONS = ANNOTATIONS / "cmake.cmake"

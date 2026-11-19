@@ -14,6 +14,7 @@ class Definition:
     overloads: list = field(default_factory=list)
     uri: Optional[str] = None
     value: Optional[str] = None
+    annotation_layer: int = 0
 
 
 class Scope:
