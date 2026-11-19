@@ -1,0 +1,41 @@
+{
+  "name": "fleurdelys",
+  "displayName": "Fleurdelys",
+  "description": "CMake language support for scripting and DSLs, powered by Fleurdelys.",
+  "version": "0.1.0",
+  "publisher": "MikuAuahDark",
+  "license": "UNLICENSED",
+  "private": true,
+  "repository": { "type": "git", "url": "https://github.com/MikuAuahDark/fleurdelys" },
+  "engines": { "vscode": "^1.85.0", "node": ">=22.0.0" },
+  "categories": ["Programming Languages"],
+  "main": "./out/extension.js",
+  "extensionKind": ["workspace"],
+  "activationEvents": ["onLanguage:cmake"],
+  "capabilities": { "untrustedWorkspaces": { "supported": false }, "virtualWorkspaces": false },
+  "contributes": {
+    "languages": [{ "id": "cmake", "aliases": ["CMake", "cmake"], "extensions": [".cmake"], "filenames": ["CMakeLists.txt"], "configuration": "./language-configuration.json" }],
+    "grammars": [{ "language": "cmake", "scopeName": "source.cmake", "path": "./syntaxes/CMake.tmLanguage.json" }],
+    "commands": [{ "command": "fleurdelys.restartServer", "title": "Fleurdelys: Restart Language Server" }],
+    "configuration": {
+      "title": "Fleurdelys",
+      "properties": {
+        "fleurdelys.enableCMakeAnnotations": { "type": "boolean", "default": false, "scope": "resource", "description": "Load the bundled CMake project and build-system annotation pack." },
+        "fleurdelys.additionalAnnotations": { "type": "array", "items": { "type": "string" }, "default": [], "scope": "resource", "description": "Additional annotation files, in order. Relative paths resolve against the workspace folder." },
+        "fleurdelys.expandEnvVariable": { "type": "boolean", "default": false, "scope": "resource", "description": "Expand $ENV{NAME} using the language server host's environment and suggest environment names." },
+        "fleurdelys.serverPath": { "type": "string", "default": "", "scope": "machine-overridable", "description": "Optional path to a Fleurdelys executable. Empty uses the bundled server. Relative paths resolve against the workspace folder." },
+        "fleurdelys.trace.server": { "type": "string", "enum": ["off", "messages", "verbose"], "default": "off", "scope": "window", "description": "Trace language server communication in the output channel." }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc --noEmit && node scripts/build.mjs",
+    "test": "npm run compile && node --test test/*.test.mjs",
+    "test:editor": "node test/run-editor.mjs",
+    "package": "node scripts/package.mjs",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": { "vscode-languageclient": "9.0.1" },
+  "overrides": { "@vscode/vsce": { "minimatch": "^11.0.1" } },
+  "devDependencies": { "@types/node": "^22.0.0", "@types/vscode": "1.85.0", "@vscode/vsce": "4.1.1", "@vscode/test-electron": "3.1.0", "esbuild": "0.28.2", "typescript": "~5.9.3", "vscode-textmate": "^9.2.0", "vscode-oniguruma": "^2.0.1" }
+}

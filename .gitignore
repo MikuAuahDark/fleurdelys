@@ -5,3 +5,11 @@ venv/
 .test-tmp/
 build/
 dist/
+node_modules/
+.npm-cache/
+.vscode-test/
+vscode/out/
+vscode/server/
+vscode/syntaxes/
+vscode/THIRD_PARTY_NOTICES.txt
+*.vsix

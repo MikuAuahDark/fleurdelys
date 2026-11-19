@@ -12,8 +12,7 @@ When updating the grammar, fetch both the grammar and upstream `LICENSE.txt`
 from the same revision and update the revision and source link above. Include
 the license file when distributing the grammar, including in a future VSIX.
 
-The grammar uses scope `source.cmake`. A future standalone VS Code extension
-should register language ID `cmake`, associate `.cmake` files and
-`CMakeLists.txt`, and contribute this grammar for that language. Language
-configuration (comments, bracket pairs, and indentation) is separate from the
-grammar and still needs to be supplied when implementing the extension.
+The grammar uses scope `source.cmake`. The VS Code extension in `vscode/`
+registers language ID `cmake`, associates `.cmake` files and `CMakeLists.txt`,
+and stages this grammar during packaging. Comments, bracket pairs and
+indentation are supplied separately by `vscode/language-configuration.json`.
