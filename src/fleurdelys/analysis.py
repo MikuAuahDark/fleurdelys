@@ -36,6 +36,7 @@ class Issue:
 @dataclass
 class Analysis:
     definitions: dict = field(default_factory=dict)
+    variable_namespaces: dict = field(default_factory=dict)
     commands: dict = field(default_factory=dict)
     issues: list = field(default_factory=list)
     symbols: dict = field(default_factory=dict)
@@ -181,13 +182,17 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
                 issue(file_uri, starts, event.start, "Malformed variable annotation.")
                 return
             args = [a.text for a in parsed.args]
-            if not args or not variable_candidate(args[0]):
+            qualified = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\{([A-Za-z_][A-Za-z0-9_.-]*)\}", args[0]) if args else None
+            if not args or not (variable_candidate(args[0]) or qualified):
                 issue(file_uri, starts, event.start, "Variable annotation requires a literal variable name.")
                 return
-            d = definition(args[0], "variable", event, starts, file_uri, description)
+            name = qualified.group(2) if qualified else args[0]
+            d = definition(name, "variable", event, starts, file_uri, description)
             d.line, d.character = position(starts, event.payload_start + payload.find(args[0], payload.find("(")))
+            if qualified:
+                d.character += len(qualified.group(1)) + 1
             d.value = argument_value(args[1]) if len(args) == 2 else None
-            tracker.set_variable(d.name, d)
+            tracker.set_variable(args[0], d)
             return
         name_match = re.fullmatch(r"\s*([A-Za-z_][A-Za-z0-9_.-]*)(?:\s+(.*?))?\s*", body)
         if not name_match:
@@ -254,7 +259,10 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
                     continue
                 for match in re.finditer(r"(?<!\\)\$([A-Za-z_]*)\{([A-Za-z0-9_.-]+)\}", token.text):
                     namespace, name = match.groups()
-                    if namespace not in VARIABLE_NAMESPACES:
+                    known_namespace = namespace in VARIABLE_NAMESPACES or any(
+                        key.startswith(namespace + "{") for key in tracker.all_visible_variables()
+                    )
+                    if not known_namespace:
                         issue(
                             file_uri,
                             starts,
@@ -399,7 +407,12 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
             report_failure(f"Annotation {problem.uri}:{problem.line + 1}: {problem.message}")
     layer += 1
     visit(source, uri, limit)
-    result.definitions = tracker.all_visible_variables()
+    for key, d in tracker.all_visible_variables().items():
+        qualified = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\{([A-Za-z_][A-Za-z0-9_.-]*)\}", key)
+        if qualified:
+            result.variable_namespaces.setdefault(qualified.group(1), {})[d.name] = d
+        else:
+            result.definitions[key] = d
     result.commands = tracker.all_visible_commands()
     result.source_symbols = {
         namespace: {name: d for name, d in symbols.items() if d.annotation_layer == layer}

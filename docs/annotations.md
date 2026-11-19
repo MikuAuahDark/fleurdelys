@@ -94,6 +94,27 @@ Variables can be documented without executing a command:
 ## set(CARTETHYIA 1)
 ```
 
+Namespaced variables use `set(NAMESPACE{NAME} [value])`:
+
+```cmake
+## Installation directory.
+## set(CACHE{CMAKE_INSTALL_PREFIX})
+## System search path.
+## set(ENV{PATH})
+## Custom variable namespace.
+## set(FOO{BAR} example)
+```
+
+Each declaration implicitly creates its variable namespace, including `CACHE`.
+Namespace names are case-sensitive identifiers (`[A-Za-z_][A-Za-z0-9_]*`);
+variable names use `[A-Za-z_][A-Za-z0-9_.-]*`. These declarations provide
+completion, hover documentation, and definition navigation for `$FOO{BAR}`.
+They follow ordinary variable annotation scope and import rules, remain separate
+from named symbol namespaces, and do not define an ordinary `${BAR}` variable.
+Later declarations in the same scope replace earlier ones. Namespaced values
+are recorded as annotation metadata; they are not expanded in include paths.
+Declaring `ENV{PATH}` does not read or modify the process environment.
+
 Documentation immediately preceding an executable `set()` also documents its
 variable. Function and variable annotations are local to the file and enclosing
 scope unless imported; named symbols remain global:

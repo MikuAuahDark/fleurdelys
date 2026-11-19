@@ -207,6 +207,7 @@ def completions(ls: CMakeLanguageServer, params: CompletionParams):
         namespace = variable.group(1)
         definitions = VARIABLE_NAMESPACES.get(namespace, {})
         descriptions = dict(definitions)
+        descriptions.update({name: d.description for name, d in result.variable_namespaces.get(namespace, {}).items()})
         if namespace == "":
             descriptions.update({name: d.description for name, d in result.definitions.items()})
         return CompletionList(
@@ -219,7 +220,8 @@ def completions(ls: CMakeLanguageServer, params: CompletionParams):
     if before.endswith("$"):
         return CompletionList(
             is_incomplete=False,
-            items=[CompletionItem(label=f"{ns}{{", kind=CompletionItemKind.Keyword) for ns in VARIABLE_NAMESPACES],
+            items=[CompletionItem(label=f"{ns}{{", kind=CompletionItemKind.Keyword)
+                   for ns in dict.fromkeys([*VARIABLE_NAMESPACES, *result.variable_namespaces])],
         )
     command, args = active_command(doc.source, offset)
     if command:
@@ -263,7 +265,12 @@ def symbol_at(result, source, offset):
     line = source[line_start : line_end if line_end >= 0 else len(source)]
     for match in re.finditer(r"\$([A-Za-z_]*)\{([A-Za-z0-9_.-]+)\}", line):
         if match.start() <= offset - line_start <= match.end():
-            return result.definitions.get(match.group(2)) if match.group(1) in ("", "CACHE") else None
+            namespace, name = match.groups()
+            if not namespace:
+                return result.definitions.get(name)
+            return result.variable_namespaces.get(namespace, {}).get(name) or (
+                result.definitions.get(name) if namespace == "CACHE" else None
+            )
     after = source[offset:]
     command_position = re.match(r"[A-Za-z0-9_.-]*\s*\(", after)
     if command_position:

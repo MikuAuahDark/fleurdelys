@@ -342,6 +342,46 @@ class IncludeTests(unittest.TestCase):
 
 
 class LspTests(unittest.TestCase):
+    def test_namespaced_variable_annotations(self):
+        prefix = "## Cache docs.\n## set(CACHE{FOO} value)\n## Custom docs.\n## set(FOO{BAR})\n"
+        result = analyze(prefix + "message($FOO{BAR} $CACHE{FOO})\n")
+        self.assertFalse(result.issues)
+        self.assertNotIn("BAR", result.definitions)
+        self.assertEqual(result.variable_namespaces["CACHE"]["FOO"].value, "value")
+        self.assertEqual(result.variable_namespaces["FOO"]["BAR"].description, "Custom docs.")
+        items = self.call(completions, CompletionParams, prefix + "message($FOO{").items
+        self.assertEqual([item.label for item in items], ["BAR"])
+        self.assertEqual(items[0].documentation.value, "Custom docs.")
+        items = self.call(completions, CompletionParams, prefix + "message($").items
+        self.assertIn("FOO{", [item.label for item in items])
+        source = prefix + "message($FOO{BAR})"
+        info = self.call(hover, HoverParams, source, character=14)
+        self.assertIn("Custom docs.", info.contents.value)
+        location = self.call(definition, DefinitionParams, source, character=14)
+        self.assertEqual((location.range.start.line, location.range.start.character), (3, 11))
+
+    def test_variable_namespace_scope_and_validation(self):
+        source = "function(f)\n## set(FOO{BAR})\nmessage($FOO{BAR})\nendfunction()\nmessage($FOO{BAR})\n"
+        result = analyze(source)
+        self.assertNotIn("FOO", result.variable_namespaces)
+        self.assertEqual([i.line for i in result.issues if "Unknown variable namespace" in i.message], [4])
+        self.assertNotIn("FOO", analyze("").variable_namespaces)
+        for target in ("FOO{}", "FOO{${BAR}}", "1FOO{BAR}", '"FOO{BAR}"', "FOO{BAR}{BAZ}"):
+            with self.subTest(target=target):
+                result = analyze(f"## set({target})\n")
+                self.assertTrue(any("literal variable name" in i.message for i in result.issues))
+
+    def test_imported_variable_namespace_is_separate_from_symbols(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "pack.cmake").write_text("## Imported docs.\n## set(FOO{BAR})\n", encoding="utf-8")
+            source = "## include(pack.cmake)\n## symbol(FOO target)\nmessage($FOO{BAR})\n"
+            result = analyze(source, uri=(root / "main.cmake").as_uri())
+            self.assertFalse(result.issues)
+            self.assertEqual(set(result.variable_namespaces["FOO"]), {"BAR"})
+            self.assertEqual(set(result.symbols["FOO"]), {"target"})
+            self.assertEqual(result.variable_namespaces["FOO"]["BAR"].uri, (root / "pack.cmake").as_uri())
+
     def test_declared_symbol_completion(self):
         source = "## symbol(t app)\n## symbol(v other)\n## function(use <t:name>)\nuse("
         result = self.call(completions, CompletionParams, source)
