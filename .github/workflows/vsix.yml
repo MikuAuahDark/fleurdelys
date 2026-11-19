@@ -49,7 +49,7 @@ jobs:
           cache-dependency-path: vscode/package-lock.json
 
       - name: Set up uv and Python
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: '3.14'
           enable-cache: true
