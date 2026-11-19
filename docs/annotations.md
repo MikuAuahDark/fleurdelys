@@ -72,6 +72,21 @@ expansions, bracket arguments, or escaped names. Variable definitions retain
 their stricter name grammar and scope rules. Equally specific matching overloads
 must agree on both namespace and argument before defining a symbol.
 
+Symbols can also be declared directly, with preceding Markdown documentation:
+
+```cmake
+## Main application target.
+## symbol(t app)
+## Imported dependency.
+## symbol(t package::library)
+```
+
+`symbol(namespace name)` requires exactly two unquoted literal arguments. It
+creates the namespace implicitly and makes the symbol globally available to
+both `namespace:` and `namespace&` suggestions. A direct declaration supplies
+the symbol's documentation and definition location, replacing an earlier entry
+with the same namespace and name. Use `## set(...)` for language variables.
+
 Variables can be documented without executing a command:
 
 ```cmake
@@ -80,7 +95,8 @@ Variables can be documented without executing a command:
 ```
 
 Documentation immediately preceding an executable `set()` also documents its
-variable. Annotations are local to the file and enclosing scope unless imported:
+variable. Function and variable annotations are local to the file and enclosing
+scope unless imported; named symbols remain global:
 
 ```cmake
 ## include(path/to/annotation.cmake)
@@ -89,7 +105,7 @@ include("path/to/helpers.cmake")
 
 Both forms resolve paths relative to the containing file and load transitive
 includes. Cycles and repeated imports in a scope are guarded. Function-local
-symbols stay local. Open editor buffers take precedence over saved files.
+variables and commands stay local. Open editor buffers take precedence over saved files.
 Include paths can use known variable values and `${CMAKE_CURRENT_LIST_DIR}`;
 unresolved dynamic paths do not produce definite missing-file warnings.
 `annotations/core.cmake` is loaded automatically before each file unit, including

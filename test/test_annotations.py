@@ -79,6 +79,27 @@ class GrammarTests(unittest.TestCase):
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_documented_symbol_annotations(self):
+        source = "## **Application** target.\n## symbol(t app)\nfunction(f)\n## Dependency.\n## symbol(t pkg::library)\nendfunction()\n## symbol(v app)\n"
+        result = analyze(source, uri="file:///test.cmake")
+        app = result.symbols["t"]["app"]
+        self.assertEqual(app.description, "**Application** target.")
+        self.assertEqual((app.line, app.character, app.uri), (1, 12, "file:///test.cmake"))
+        self.assertIn("pkg::library", result.symbols["t"])
+        self.assertIn("app", result.symbols["v"])
+        self.assertNotIn("app", result.definitions)
+        self.assertFalse(result.issues)
+
+    def test_symbol_annotation_validation_and_replacement(self):
+        for declaration in ("symbol()", "symbol(t)", "symbol(t app extra)", 'symbol("t" app)', "symbol(t ${name})", 'symbol(t "app")', "symbol(t [[app]])", "symbol(bad-name app)"):
+            with self.subTest(declaration=declaration):
+                result = analyze("## " + declaration + "\n")
+                self.assertEqual(len(result.issues), 1)
+                self.assertFalse(result.symbols)
+        result = analyze("## function(create <t&name>)\ncreate(app)\n## Documented.\n## symbol(t app)\ncreate(app)\n")
+        self.assertEqual(result.symbols["t"]["app"].description, "Documented.")
+        self.assertEqual(result.symbols["t"]["app"].line, 3)
+
     def test_symbols_are_global_and_separate_from_variables(self):
         source = """## function(create <t&name>)
 ## function(other <v&name>)
@@ -321,6 +342,11 @@ class IncludeTests(unittest.TestCase):
 
 
 class LspTests(unittest.TestCase):
+    def test_declared_symbol_completion(self):
+        source = "## symbol(t app)\n## symbol(v other)\n## function(use <t:name>)\nuse("
+        result = self.call(completions, CompletionParams, source)
+        self.assertEqual([item.label for item in result.items], ["app"])
+
     def call(self, handler, params_type, source, line=None, character=None, uri="file:///test.cmake", documents=None):
         doc = TextDocument(uri=uri, source=source)
         ls = MagicMock()

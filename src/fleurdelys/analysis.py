@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from urllib.request import url2pathname
 
 from .constants import BUILTIN_VARIABLES, CORE_ANNOTATIONS, VARIABLE_NAMESPACES
-from .signatures import SignatureParser, SignatureMatcher, argument_value, variable_candidate
+from .signatures import SignatureParser, SignatureMatcher, argument_value, variable_candidate, symbol_candidate
 from .syntax import Command, Comment, scan, line_starts, position
 from .utils import Definition, ScopeTracker
 
@@ -133,11 +133,27 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
         visit(content, target_uri)
 
     def add_annotation(payload, description, event, starts, file_uri):
-        match = re.fullmatch(r"\s*(function|set|include)\s*\((.*)\)\s*", payload, re.IGNORECASE)
+        match = re.fullmatch(r"\s*(function|set|include|symbol)\s*\((.*)\)\s*", payload, re.IGNORECASE)
         if not match:
             issue(file_uri, starts, event.start, "Malformed annotation declaration.")
             return
         command, body = match.group(1).lower(), match.group(2)
+        if command == "symbol":
+            parsed = next(iter(scan("symbol(" + body + ")")), None)
+            if not isinstance(parsed, Command) or not parsed.complete or len(parsed.args) != 2:
+                issue(file_uri, starts, event.start, "Symbol annotation requires a namespace and a literal symbol name.")
+                return
+            namespace, name = [arg.text for arg in parsed.args]
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", namespace) or not symbol_candidate(name):
+                issue(file_uri, starts, event.start, "Symbol annotation requires a namespace identifier and a literal symbol name.")
+                return
+            d = definition(name, "symbol", event, starts, file_uri, description)
+            # scan() used a synthetic prefix; translate the name's offset back
+            # to the original annotation, including its optional whitespace.
+            name_offset = payload.find("(") + 1 + parsed.args[1].start - len("symbol(")
+            d.line, d.character = position(starts, event.payload_start + name_offset)
+            result.symbols.setdefault(namespace, {})[name] = d
+            return
         if command == "include":
             parsed = next(iter(scan("include(" + body + ")")), None)
             if not isinstance(parsed, Command) or not parsed.complete:
@@ -205,7 +221,7 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
                 if not event.annotation:
                     pending = []
                     continue
-                if re.match(r"\s*(?:function|set|include)\s*\(", event.text, re.IGNORECASE):
+                if re.match(r"\s*(?:function|set|include|symbol)\s*\(", event.text, re.IGNORECASE):
                     add_annotation(event.text, "\n".join(pending), event, starts, file_uri)
                     pending = []
                 else:
