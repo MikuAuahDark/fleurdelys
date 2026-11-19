@@ -915,3 +915,69 @@
 ## Host command and optional arguments used to run target executables during cross compilation and initialize target emulator properties.
 ## [Documentation](https://cmake.org/cmake/help/v4.4/variable/CMAKE_CROSSCOMPILING_EMULATOR.html)
 ## set(CMAKE_CROSSCOMPILING_EMULATOR)
+
+# Target platform and compilers
+
+## True if the target system is Windows, including 64-bit Windows.
+## [Documentation](https://cmake.org/cmake/help/v4.4/variable/WIN32.html)
+## set(WIN32)
+
+## True if the target system is Unix-like, including Linux and macOS.
+## [Documentation](https://cmake.org/cmake/help/v4.4/variable/UNIX.html)
+## set(UNIX)
+
+## True if the target system is an Apple platform.
+## [Documentation](https://cmake.org/cmake/help/v4.4/variable/APPLE.html)
+## set(APPLE)
+
+## True if the compiler is Microsoft Visual C++ or another compiler simulating its cl command-line syntax.
+## [Documentation](https://cmake.org/cmake/help/v4.4/variable/MSVC.html)
+## set(MSVC)
+
+## Full path to the C++ compiler; may include required compiler options. Cannot be changed once set.
+## [Documentation](https://cmake.org/cmake/help/v4.4/variable/CMAKE_LANG_COMPILER.html)
+## set(CMAKE_CXX_COMPILER)
+
+## Full path to the C compiler; may include required compiler options. Cannot be changed once set.
+## [Documentation](https://cmake.org/cmake/help/v4.4/variable/CMAKE_LANG_COMPILER.html)
+## set(CMAKE_C_COMPILER)
+
+# Environment inputs (documentation only; values are not read).
+
+## Installation prefixes searched by find_package, find_program, find_library, find_file and find_path. Separated by ':' on Unix or ';' on Windows.
+## [Documentation](https://cmake.org/cmake/help/v4.4/envvar/CMAKE_PREFIX_PATH.html)
+## set(ENV{CMAKE_PREFIX_PATH})
+
+## Preferred C++ compiler on the first configuration; ignored if CMAKE_CXX_COMPILER is already defined. May include required compiler options.
+## [Documentation](https://cmake.org/cmake/help/v4.4/envvar/CXX.html)
+## set(ENV{CXX})
+
+## Preferred C compiler on the first configuration; ignored if CMAKE_C_COMPILER is already defined. May include required compiler options.
+## [Documentation](https://cmake.org/cmake/help/v4.4/envvar/CC.html)
+## set(ENV{CC})
+
+## Default C compilation flags used to initialize CMAKE_C_FLAGS on the first configuration; ignored if that variable is already defined.
+## [Documentation](https://cmake.org/cmake/help/v4.4/envvar/CFLAGS.html)
+## set(ENV{CFLAGS})
+
+## Default C++ compilation flags used to initialize CMAKE_CXX_FLAGS on the first configuration; ignored if that variable is already defined.
+## [Documentation](https://cmake.org/cmake/help/v4.4/envvar/CXXFLAGS.html)
+## set(ENV{CXXFLAGS})
+
+## Default linker flags used during the first configuration; ignored when the corresponding CMAKE_<TYPE>_LINKER_FLAGS_INIT variable is already defined.
+## [Documentation](https://cmake.org/cmake/help/v4.4/envvar/LDFLAGS.html)
+## set(ENV{LDFLAGS})
+
+# Cache entries, separate from ordinary variable declarations above.
+
+## Installation prefix used for relative install destinations.
+## [Documentation](https://cmake.org/cmake/help/v4.4/variable/CMAKE_INSTALL_PREFIX.html)
+## set(CACHE{CMAKE_INSTALL_PREFIX})
+
+## Default add_library to SHARED instead of STATIC when no explicit type is given. CMake does not define this entry by default; projects commonly expose it using option().
+## [Documentation](https://cmake.org/cmake/help/v4.4/variable/BUILD_SHARED_LIBS.html)
+## set(CACHE{BUILD_SHARED_LIBS})
+
+## Generate compile_commands.json with exact compiler invocations. Supported only by Makefile and Ninja generators.
+## [Documentation](https://cmake.org/cmake/help/v4.4/variable/CMAKE_EXPORT_COMPILE_COMMANDS.html)
+## set(CACHE{CMAKE_EXPORT_COMPILE_COMMANDS})

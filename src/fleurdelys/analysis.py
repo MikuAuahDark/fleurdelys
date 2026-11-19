@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
-from .constants import BUILTIN_VARIABLES, CORE_ANNOTATIONS, CMAKE_ANNOTATIONS, VARIABLE_NAMESPACES
+from .constants import CORE_ANNOTATIONS, CMAKE_ANNOTATIONS
 from .options import AnnotationOptions
 from .signatures import SignatureParser, SignatureMatcher, argument_value, variable_candidate, symbol_candidate
 from .syntax import Command, Comment, scan, line_starts, position
@@ -259,7 +259,7 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
                     continue
                 for match in re.finditer(r"(?<!\\)\$([A-Za-z_]*)\{([A-Za-z0-9_.-]+)\}", token.text):
                     namespace, name = match.groups()
-                    known_namespace = namespace in VARIABLE_NAMESPACES or any(
+                    known_namespace = namespace == "" or any(
                         key.startswith(namespace + "{") for key in tracker.all_visible_variables()
                     )
                     if not known_namespace:
@@ -270,7 +270,7 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
                             f"Unknown variable namespace '{namespace}'.",
                             False,
                         )
-                    elif namespace == "" and not tracker.is_defined(name) and name not in BUILTIN_VARIABLES:
+                    elif namespace == "" and not tracker.is_defined(name):
                         issue(file_uri, starts, token.start + match.start(), f"Variable '{name}' may be undefined.")
             if not event.complete or (limit is not None and event.end > limit):
                 continue

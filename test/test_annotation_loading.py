@@ -10,6 +10,38 @@ from types import SimpleNamespace
 
 
 class AnnotationLoadingTests(unittest.TestCase):
+    def test_variable_catalogues_follow_annotation_pack_loading(self):
+        core = analyze("")
+        combined = analyze("", options=AnnotationOptions(True))
+        self.assertIn("CMAKE_CURRENT_LIST_DIR", core.definitions)
+        self.assertIn("CMAKE_CURRENT_LIST_FILE", core.definitions)
+        self.assertEqual(set(core.variable_namespaces["ENV"]), {"PATH", "LD_LIBRARY_PATH"})
+        cmake_names = {
+            "CMAKE_SOURCE_DIR", "CMAKE_BINARY_DIR", "PROJECT_NAME", "PROJECT_SOURCE_DIR",
+            "PROJECT_BINARY_DIR", "CMAKE_VERSION", "CMAKE_COMMAND", "WIN32", "UNIX",
+            "APPLE", "MSVC", "CMAKE_CXX_COMPILER", "CMAKE_C_COMPILER", "BUILD_SHARED_LIBS",
+            "CMAKE_BUILD_TYPE",
+        }
+        self.assertTrue(cmake_names.isdisjoint(core.definitions))
+        self.assertTrue(cmake_names <= combined.definitions.keys())
+        self.assertNotIn("CACHE", core.variable_namespaces)
+        self.assertEqual(set(combined.variable_namespaces["CACHE"]), {
+            "CMAKE_INSTALL_PREFIX", "BUILD_SHARED_LIBS", "CMAKE_EXPORT_COMPILE_COMMANDS",
+        })
+        self.assertEqual(set(combined.variable_namespaces["ENV"]), {
+            "PATH", "LD_LIBRARY_PATH", "CMAKE_PREFIX_PATH", "CXX", "CC", "CFLAGS", "CXXFLAGS", "LDFLAGS",
+        })
+        source = "message(${PROJECT_NAME})\n"
+        self.assertTrue(any("may be undefined" in i.message for i in analyze(source).issues))
+        self.assertFalse(analyze(source, options=AnnotationOptions(True)).issues)
+
+    def test_disabled_or_missing_packs_have_no_hardcoded_variable_fallback(self):
+        with patch("fleurdelys.analysis.CORE_ANNOTATIONS", Path("missing-core.cmake").resolve()):
+            result = analyze("message(${CMAKE_CURRENT_LIST_DIR})\n", report=lambda message: None)
+        self.assertNotIn("CMAKE_CURRENT_LIST_DIR", result.definitions)
+        self.assertFalse(result.variable_namespaces)
+        self.assertTrue(any("may be undefined" in i.message for i in result.issues))
+
     def test_bundled_cmake_extends_core_overloads(self):
         core = analyze("")
         combined = analyze("", options=AnnotationOptions(True))

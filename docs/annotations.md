@@ -115,6 +115,14 @@ Later declarations in the same scope replace earlier ones. Namespaced values
 are recorded as annotation metadata; they are not expanded in include paths.
 Declaring `ENV{PATH}` does not read or modify the process environment.
 
+Variable catalogues come entirely from loaded annotations. Core supplies list-file
+context and general process environment names (`ENV{PATH}` and
+`ENV{LD_LIBRARY_PATH}`). The optional CMake pack supplies project, build, platform
+and compiler variables, CMake environment inputs, and documented `CACHE` entries.
+Disabling that pack removes its entries from completion, hover, navigation and
+undefined-variable exemptions. The ordinary `${...}` namespace is always valid;
+other variable namespaces are recognized when a visible declaration defines them.
+
 Documentation immediately preceding an executable `set()` also documents its
 variable. Function and variable annotations are local to the file and enclosing
 scope unless imported; named symbols remain global:
@@ -135,6 +143,12 @@ explicit include.
 
 The repository provides two annotation files, with descriptions adapted from
 the official CMake 4.4 manual and links to each entry's documentation:
+
+The migrated platform, compiler, environment and cache descriptions were checked
+against the installed CMake 4.4.4 reference manual. Environment compiler flags
+use the documented `CFLAGS` and `CXXFLAGS` names, rather than a generic `FLAGS`.
+`PATH` and `LD_LIBRARY_PATH` retain general process-environment descriptions;
+the CMake manual has no dedicated entries for them.
 
 - `annotations/core.cmake` contains general-purpose language utilities for DSL
   usage: control flow, normal variables, strings, lists, files, paths, processes,

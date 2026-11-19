@@ -342,6 +342,19 @@ class IncludeTests(unittest.TestCase):
 
 
 class LspTests(unittest.TestCase):
+    def test_variable_documentation_comes_from_annotations(self):
+        result = self.call(completions, CompletionParams, "message($ENV{")
+        self.assertEqual([item.label for item in result.items], ["LD_LIBRARY_PATH", "PATH"])
+        self.assertTrue(all(item.documentation.value for item in result.items))
+        source = "message($ENV{PATH})"
+        info = self.call(hover, HoverParams, source, character=14)
+        self.assertIn("System search path", info.contents.value)
+        location = self.call(definition, DefinitionParams, source, character=14)
+        self.assertEqual(location.uri, CORE_ANNOTATIONS.as_uri())
+        result = self.call(completions, CompletionParams, "message(${PROJECT_")
+        self.assertNotIn("PROJECT_NAME", [item.label for item in result.items])
+        self.assertIsNone(self.call(hover, HoverParams, "message(${PROJECT_NAME})", character=15))
+
     def test_namespaced_variable_annotations(self):
         prefix = "## Cache docs.\n## set(CACHE{FOO} value)\n## Custom docs.\n## set(FOO{BAR})\n"
         result = analyze(prefix + "message($FOO{BAR} $CACHE{FOO})\n")

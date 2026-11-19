@@ -39,7 +39,6 @@ from lsprotocol.types import (
 )
 
 from .analysis import analyze, command_overloads
-from .constants import BUILTIN_VARIABLES, VARIABLE_NAMESPACES
 from .syntax import active_command, in_comment, line_starts
 from .options import AnnotationOptions, configuration
 from .analysis import path_from_uri
@@ -205,11 +204,8 @@ def completions(ls: CMakeLanguageServer, params: CompletionParams):
     variable = re.search(r"\$([A-Za-z_]*)\{([A-Za-z0-9_.-]*)$", before)
     if variable:
         namespace = variable.group(1)
-        definitions = VARIABLE_NAMESPACES.get(namespace, {})
-        descriptions = dict(definitions)
-        descriptions.update({name: d.description for name, d in result.variable_namespaces.get(namespace, {}).items()})
-        if namespace == "":
-            descriptions.update({name: d.description for name, d in result.definitions.items()})
+        definitions = result.variable_namespaces.get(namespace, {}) if namespace else result.definitions
+        descriptions = {name: d.description for name, d in definitions.items()}
         return CompletionList(
             is_incomplete=False,
             items=[
@@ -221,13 +217,13 @@ def completions(ls: CMakeLanguageServer, params: CompletionParams):
         return CompletionList(
             is_incomplete=False,
             items=[CompletionItem(label=f"{ns}{{", kind=CompletionItemKind.Keyword)
-                   for ns in dict.fromkeys([*VARIABLE_NAMESPACES, *result.variable_namespaces])],
+                   for ns in ["", *result.variable_namespaces]],
         )
     command, args = active_command(doc.source, offset)
     if command:
         name = command.name.lower()
         specs = command_overloads(name, result.commands.get(name))
-        variables = set(BUILTIN_VARIABLES) | set(result.definitions)
+        variables = set(result.definitions)
         keywords = set()
         for overload in specs:
             keywords.update(overload.matcher.get_completions(args, variables, result.symbols))
@@ -268,9 +264,7 @@ def symbol_at(result, source, offset):
             namespace, name = match.groups()
             if not namespace:
                 return result.definitions.get(name)
-            return result.variable_namespaces.get(namespace, {}).get(name) or (
-                result.definitions.get(name) if namespace == "CACHE" else None
-            )
+            return result.variable_namespaces.get(namespace, {}).get(name)
     after = source[offset:]
     command_position = re.match(r"[A-Za-z0-9_.-]*\s*\(", after)
     if command_position:
@@ -352,16 +346,6 @@ def hover(ls: CMakeLanguageServer, params: HoverParams):
         else:
             content = f"**{d.name}**\n\n{d.description or ''}"
         return Hover(contents=markdown(content))
-    word = word_at(doc.source, offset)
-    # Namespace variables retain their built-in documentation.
-    for match in re.finditer(r"\$([A-Za-z_]*)\{([A-Za-z0-9_.-]+)\}", doc.source):
-        if match.start() <= offset <= match.end():
-            namespace, name = match.groups()
-            desc = VARIABLE_NAMESPACES.get(namespace, {}).get(name)
-            if desc:
-                return Hover(contents=markdown(f"**${namespace}{{{name}}}**\n\n{desc}"))
-    if word in BUILTIN_VARIABLES:
-        return Hover(contents=markdown(f"**{word}**\n\n{BUILTIN_VARIABLES[word]}"))
     return None
 
 

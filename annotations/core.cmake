@@ -594,3 +594,11 @@
 ## Text captured by regular-expression group 9.
 ## [Documentation](https://cmake.org/cmake/help/v4.4/variable/CMAKE_MATCH_n.html)
 ## set(CMAKE_MATCH_9)
+
+# General process environment documentation (values are not read).
+
+## System search path for executables.
+## set(ENV{PATH})
+
+## Search path for shared libraries at runtime on Unix-like systems.
+## set(ENV{LD_LIBRARY_PATH})
