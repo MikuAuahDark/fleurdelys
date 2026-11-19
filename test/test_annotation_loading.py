@@ -10,6 +10,36 @@ from types import SimpleNamespace
 
 
 class AnnotationLoadingTests(unittest.TestCase):
+    def test_bundled_cmake_extends_core_overloads(self):
+        core = analyze("")
+        combined = analyze("", options=AnnotationOptions(True))
+        for name, command in core.commands.items():
+            with self.subTest(command=name):
+                self.assertEqual(combined.commands[name].signatures[:len(command.signatures)],
+                                 command.signatures)
+        self.assertGreater(len(combined.commands["message"].signatures),
+                           len(core.commands["message"].signatures))
+        for args in (["STATUS", '"hello"'], ["AUTHOR_WARNING", '"hello"'],
+                     ["CHECK_START", '"checking"']):
+            with self.subTest(args=args):
+                self.assertTrue(any(overload.matcher.match(args).success
+                                    for overload in combined.commands["message"].overloads))
+        source = Path(__file__).with_name("hello.cmake").read_text(encoding="utf-8")
+        result = analyze(source, options=AnnotationOptions(True))
+        self.assertFalse(any(issue.message == "Invalid arguments for 'message'."
+                             for issue in result.issues))
+
+    def test_external_packs_extend_bundled_overloads_and_local_can_override(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pack = Path(directory) / "pack.cmake"
+            pack.write_text("## function(message EXTERNAL)\n", encoding="utf-8")
+            options = AnnotationOptions(True, (pack,))
+            bundled = analyze("", options=AnnotationOptions(True)).commands["message"].signatures
+            self.assertEqual(analyze("", options=options).commands["message"].signatures,
+                             bundled + ["EXTERNAL"])
+            result = analyze("## function(message LOCAL)\n", options=options)
+            self.assertEqual(result.commands["message"].signatures, ["LOCAL"])
+
     def test_secondary_analysis_uses_its_workspace_without_leaking_defaults(self):
         from fleurdelys.server import at_cursor
         from pygls.workspace import TextDocument
@@ -118,8 +148,9 @@ class AnnotationLoadingTests(unittest.TestCase):
             second.write_text("## include(child.cmake)\n", encoding="utf-8")
             options = AnnotationOptions(False, (first, second, second))
             result = analyze("", options=options)
-            self.assertEqual(result.commands["example"].signatures, ["SECOND", "THIRD"])
-            self.assertEqual(result.commands["example"].uri, child.as_uri())
+            self.assertEqual(result.commands["example"].signatures, ["FIRST", "SECOND", "THIRD"])
+            self.assertEqual(result.commands["example"].uri, first.as_uri())
+            self.assertEqual(result.commands["example"].overloads[1].uri, child.as_uri())
             result = analyze("## function(example LOCAL)\nfunction(example x)\nendfunction()\n", uri=(root / "consumer.cmake").as_uri(), options=options)
             self.assertEqual(result.commands["example"].signatures, ["LOCAL"])
             self.assertEqual(result.commands["example"].line, 1)

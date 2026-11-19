@@ -26,7 +26,7 @@ The frozen launcher accommodates pygls closing stdout on LSP exit: it replaces
 both closed stdout references before PyInstaller's final flush. Final frozen
 smoke runs completed without stderr output.
 
-Tests also cover ordering, transitive imports/cycles, overload replacement,
+Tests also cover ordering, transitive imports/cycles, additive pack overloads and local overrides,
 local inference/navigation, cursor defaults, unsaved buffers, malformed scopes,
 missing/corrupt files, snapshot defaults/type validation, CLI transports,
 warning deduplication, close/watcher invalidation and multi-root secondary

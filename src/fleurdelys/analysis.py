@@ -73,7 +73,9 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
     tracker = ScopeTracker()
     core_uri = CORE_ANNOTATIONS.as_uri()
     visiting, imported, declarations = set(), set(), set()
-    layer = 0
+    # All annotation packs contribute overloads to one shared layer. The
+    # consumer starts its own layer so local implementations can override them.
+    layer = 1
 
     def report_failure(message):
         if report is not None:
@@ -376,7 +378,6 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
         pack_uri = path.as_uri()
         if pack_uri == uri or (pack_uri, tracker.current) in imported:
             continue
-        layer += 1
         try:
             content = loader(pack_uri) if loader else None
             if content is None:

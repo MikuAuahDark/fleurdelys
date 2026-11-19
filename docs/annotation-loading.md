@@ -37,11 +37,12 @@ Normalized paths are deduplicated, keeping their first position. Includes still
 resolve relative to their containing file and retain existing variable expansion.
 
 Loading order is core, optional CMake, external packs in order, then consumer.
-Later packs replace earlier command overload sets. For example, two declarations
+All annotation packs extend command overload sets in the same layer.
+For example, two declarations
 `## function(example FIRST)` and `## function(example SECOND)` in pack A form two
-overloads. Pack B's `## function(example THIRD)` replaces both. A consumer's
-`## function(example LOCAL)` replaces B's set. Transitive includes belong to their
-pack's layer; ordinary consumer includes retain their existing scope behavior.
+overloads. Pack B's `## function(example THIRD)` adds a third overload. A consumer's
+`## function(example LOCAL)` replaces the combined set. Transitive includes share
+the annotation layer; ordinary consumer includes retain their existing scope behavior.
 An implementation without a local annotation gets an inferred signature; one
 with a local annotation keeps that signature and supplies its navigation location.
 Variables and named symbols keep existing scope/namespace rules, with later
