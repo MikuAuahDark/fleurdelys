@@ -76,8 +76,15 @@ these notifications are observed on the next feature analysis. Load warnings use
 Unreadable optional files are skipped; missing bundled files identify an
 installation requiring repair. Diagnostics retain their own source URI.
 
-The future VS Code wrapper only needs to contribute the settings, launch a
-language client over stdio, forward full snapshots and watched-file events.
+The [VS Code extension](../vscode/README.md) contributes these settings, launches
+one stdio language client per workspace folder and forwards full snapshots and
+watched-file events. It opts into `fleurdelysWatchDependencies: true` alongside
+the `fleurdelys` object in initialization options. The server then sends
+`fleurdelys/watchDependency` notifications with `{ "uri": "file:///..." }` for
+annotation packs and resolved includes, including missing files. The extension
+watches these paths for creation, change and deletion, including outside the
+workspace. Other clients can ignore this optional extension to LSP and manage
+their own watches. Watches are retained until server restart.
 See the [language server extension guide](https://code.visualstudio.com/api/language-extensions/language-server-extension-guide).
 
 ## Distribution

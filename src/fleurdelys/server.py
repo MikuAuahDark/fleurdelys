@@ -52,6 +52,13 @@ class CMakeLanguageServer(LanguageServer):
         self.annotation_settings = {}
         self.annotation_roots = []
         self.annotation_warnings = set()
+        self.watch_dependencies = False
+        self.annotation_dependencies = set()
+
+    def annotation_dependency(self, uri):
+        if self.watch_dependencies and uri not in self.annotation_dependencies:
+            self.annotation_dependencies.add(uri)
+            self.protocol.notify("fleurdelys/watchDependency", {"uri": uri})
 
     def annotation_warning(self, message):
         if message not in self.annotation_warnings:
@@ -78,13 +85,15 @@ server = CMakeLanguageServer()
 
 def analysis_arguments(ls, uri):
     if isinstance(ls, CMakeLanguageServer):
-        return {"options": ls.analysis_options(uri), "report": ls.annotation_warning}
+        return {"options": ls.analysis_options(uri), "report": ls.annotation_warning,
+                "dependency": ls.annotation_dependency}
     return {}
 
 
 @server.feature(INITIALIZE)
 def initialize(ls, params):
     ls.annotation_settings = params.initialization_options or {}
+    ls.watch_dependencies = isinstance(ls.annotation_settings, dict) and ls.annotation_settings.get("fleurdelysWatchDependencies") is True
     folders = params.workspace_folders or []
     uris = [folder.uri for folder in folders]
     if not uris and params.root_uri:
@@ -158,6 +167,13 @@ def document_loader(ls):
         documents = getattr(ls.workspace, "text_documents", {})
         if isinstance(documents, dict):
             doc = documents.get(uri)
+            if doc is None:
+                # Editor URIs may encode drive delimiters differently from
+                # Path.as_uri(); still use the open buffer for the same file.
+                target = path_from_uri(uri)
+                if target is not None:
+                    doc = next((item for key, item in documents.items()
+                                if path_from_uri(key) == target), None)
             if doc is not None and isinstance(doc.source, str):
                 return doc.source
         return None

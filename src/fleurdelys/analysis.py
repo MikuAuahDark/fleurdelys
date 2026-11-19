@@ -60,7 +60,12 @@ def path_from_uri(uri):
         return None
     parsed = urlparse(uri)
     if parsed.scheme == "file":
-        path = url2pathname(parsed.path)
+        # VS Code encodes the drive colon. Decode that delimiter before the
+        # Windows URL converter decides whether to strip the leading slash.
+        url_path = parsed.path
+        if os.name == "nt":
+            url_path = re.sub(r"^/([A-Za-z])%3[aA](?=/)", r"/\1:", url_path)
+        path = url2pathname(url_path)
         if parsed.netloc:
             path = "//" + parsed.netloc + path
         return Path(path)
@@ -70,7 +75,7 @@ def path_from_uri(uri):
 
 
 def analyze(source, uri=None, position_line=None, loader=None, position_offset=None,
-            options=AnnotationOptions(), report=None):
+            options=AnnotationOptions(), report=None, dependency=None):
     result = Analysis()
     tracker = ScopeTracker()
     core_uri = CORE_ANNOTATIONS.as_uri()
@@ -137,6 +142,8 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
                 path = current_path.parent / path
             path = path.resolve()
             target_uri = path.as_uri()
+            if dependency is not None:
+                dependency(target_uri)
         except (OSError, ValueError):
             issue(file_uri, starts, event.start, f"Invalid include path '{target}'.")
             return
@@ -392,6 +399,8 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
     for path, bundled in packs:
         path = path.resolve()
         pack_uri = path.as_uri()
+        if dependency is not None:
+            dependency(pack_uri)
         if pack_uri == uri or (pack_uri, tracker.current) in imported:
             continue
         try:
