@@ -51,7 +51,7 @@ The bundler prefers `.venv`'s PyInstaller. Set `FLEURDELYS_PYINSTALLER` to overr
 the executable. It collects runtime notices from `.venv`; use that environment
 for release builds. If the Python license cannot be found through
 `.venv/pyvenv.cfg`, set `FLEURDELYS_PYTHON_LICENSE` to its license file.
-The same commands can be used in a future GitHub Actions or Forgejo matrix.
+The packaging workflows use the same commands and locked dependencies.
 
 `npm run test:editor` launches an isolated VS Code extension host for integration
 tests. Set `VSCODE_EXECUTABLE_PATH` to use an installed VS Code executable;

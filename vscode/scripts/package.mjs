@@ -59,7 +59,17 @@ const pythonCandidates = [process.env.FLEURDELYS_PYTHON_LICENSE];
 try {
   const cfg = await readFile(path.join(repoRoot, '.venv', 'pyvenv.cfg'), 'utf8');
   const home = /^home\s*=\s*(.+)$/m.exec(cfg)?.[1].trim();
-  if (home) pythonCandidates.push(path.join(home, 'LICENSE.txt'), path.join(home, '..', 'LICENSE.txt'));
+  if (home) {
+    pythonCandidates.push(path.join(home, 'LICENSE.txt'), path.join(home, '..', 'LICENSE.txt'));
+    // POSIX Python distributions (including uv-managed Python) keep the
+    // runtime license in the standard library, alongside the bin directory.
+    const version = /^version_info\s*=\s*(\d+\.\d+)/m.exec(cfg)?.[1];
+    if (version) {
+      for (const lib of ['lib', 'lib64']) {
+        pythonCandidates.push(path.join(home, '..', lib, `python${version}`, 'LICENSE.txt'));
+      }
+    }
+  }
 } catch { /* A globally installed builder may supply its own license path. */ }
 let pythonLicense;
 for (const candidate of pythonCandidates.filter(Boolean)) {

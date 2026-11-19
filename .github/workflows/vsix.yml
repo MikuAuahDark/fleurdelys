@@ -1,0 +1,107 @@
+name: Build VS Code extension
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vsix-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: VSIX (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: linux-x64
+          - runner: windows-2022
+            target: win32-x64
+          - runner: macos-15-intel
+            target: darwin-x64
+          - runner: macos-15
+            target: darwin-arm64
+    defaults:
+      run:
+        shell: bash
+    env:
+      UV_PYTHON_PREFERENCE: only-managed
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: vscode/package-lock.json
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v10
+        with:
+          python-version: '3.14'
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --frozen --dev
+
+      - name: Test language server
+        run: uv run --no-sync python -m unittest discover -s test -p 'test_*.py'
+
+      - name: Install extension dependencies
+        working-directory: vscode
+        run: npm ci
+
+      - name: Build and smoke-test VSIX
+        working-directory: vscode
+        run: npm run package -- --target '${{ matrix.target }}'
+
+      - name: Test client and grammar
+        working-directory: vscode
+        run: npm test
+
+      - name: Install Linux editor test dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth libgtk-3-0 libnss3 libgbm1 libasound2 libxshmfence1 libx11-xcb1 libxkbfile1
+
+      - name: Test in isolated VS Code host (Linux)
+        if: runner.os == 'Linux'
+        working-directory: vscode
+        run: xvfb-run -a npm run test:editor
+
+      - name: Test in isolated VS Code host (Windows and macOS)
+        if: runner.os != 'Linux'
+        working-directory: vscode
+        run: npm run test:editor
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v7
+        with:
+          name: fleurdelys-${{ matrix.target }}
+          path: dist/fleurdelys-*-${{ matrix.target }}.vsix
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload editor logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: editor-logs-${{ matrix.target }}
+          path: vscode/.vscode-test/integration-*/user-data/logs/**
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
