@@ -8,6 +8,7 @@ from pathlib import Path
 class AnnotationOptions:
     enable_cmake_annotations: bool = False
     additional_annotations: tuple = ()
+    expand_env_variable: bool = False
 
 
 def configuration(settings, defaults=AnnotationOptions(), base=None, warn=lambda message: None):
@@ -24,6 +25,10 @@ def configuration(settings, defaults=AnnotationOptions(), base=None, warn=lambda
         warn("fleurdelys.enableCMakeAnnotations must be a boolean; using startup default.")
         enabled = defaults.enable_cmake_annotations
     paths = values.get("additionalAnnotations", defaults.additional_annotations)
+    expand_env = values.get("expandEnvVariable", defaults.expand_env_variable)
+    if type(expand_env) is not bool:
+        warn("fleurdelys.expandEnvVariable must be a boolean; using startup default.")
+        expand_env = defaults.expand_env_variable
     if "additionalAnnotations" in values and (not isinstance(paths, list) or any(not isinstance(p, str) for p in paths)):
         warn("fleurdelys.additionalAnnotations must be an array of file paths; using startup default.")
         paths = defaults.additional_annotations
@@ -43,4 +48,4 @@ def configuration(settings, defaults=AnnotationOptions(), base=None, warn=lambda
                 resolved.append(path)
         except (OSError, ValueError) as error:
             warn(f"Invalid annotation path '{value}': {error}")
-    return AnnotationOptions(enabled, tuple(resolved))
+    return AnnotationOptions(enabled, tuple(resolved), expand_env)

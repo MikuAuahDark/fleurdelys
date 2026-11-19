@@ -1,6 +1,7 @@
 """File-local annotation, include, scope and call analysis."""
 
 import re
+import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -101,7 +102,11 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
         current_path = path_from_uri(file_uri)
 
         def substitute(match):
-            name = match.group(1)
+            namespace, name = match.groups()
+            if namespace:
+                if options.expand_env_variable:
+                    return os.environ.get(name, match.group(0))
+                return match.group(0)
             if current_path and name == "CMAKE_CURRENT_LIST_DIR":
                 return str(current_path.parent)
             if current_path and name == "CMAKE_CURRENT_LIST_FILE":
@@ -110,7 +115,7 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
             return found.value if found and found.value is not None else match.group(0)
 
         for _ in range(10):
-            replacement = re.sub(r"\$\{([^{}]+)\}", substitute, value)
+            replacement = re.sub(r"(?<!\\)\$(ENV)?\{([^{}]+)\}", substitute, value)
             if replacement == value:
                 break
             value = replacement
@@ -120,7 +125,9 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
         if not args:
             issue(file_uri, starts, event.start, "include() requires a path.")
             return
-        target = expand(argument_value(args[0]), file_uri)
+        target = argument_value(args[0])
+        if not re.match(r"\[(=*)\[", args[0]):
+            target = expand(target, file_uri)
         current_path = path_from_uri(file_uri)
         if "$" in target or current_path is None:
             return
@@ -295,7 +302,8 @@ def analyze(source, uri=None, position_line=None, loader=None, position_offset=N
                 include(args, event, starts, file_uri)
             elif cmd == "set" and args and variable_candidate(args[0]):
                 d = definition(args[0], "variable", event, starts, file_uri, description)
-                d.value = expand(values[1], file_uri) if len(values) == 2 else None
+                if len(values) == 2:
+                    d.value = values[1] if re.match(r"\[(=*)\[", args[1]) else expand(values[1], file_uri)
                 parent = len(args) > 1 and args[-1] == "PARENT_SCOPE"
                 destination = tracker.stack[-2] if parent and len(tracker.stack) > 1 else tracker.current
                 old = destination.variables.get(d.name)

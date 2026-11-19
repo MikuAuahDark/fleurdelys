@@ -4,7 +4,7 @@ Core annotations are always loaded. The CMake pack is disabled by default and
 the external pack list is empty. All packs are parsed, never executed.
 
 ```text
-fleurdelys --enable-cmake-annotations --annotation "packs/first.cmake" --annotation "packs/second.cmake"
+fleurdelys --enable-cmake-annotations --annotation "packs/first.cmake" --annotation "packs/second.cmake" --expand-env-variable
 ```
 
 CLI relative paths are resolved once against the launch directory. Standard IO
@@ -15,7 +15,7 @@ Clients send this exact object as `initializationOptions`, and later as the
 `settings` member of `workspace/didChangeConfiguration`:
 
 ```json
-{"fleurdelys":{"enableCMakeAnnotations":true,"additionalAnnotations":["packs/extra.cmake"]}}
+{"fleurdelys":{"enableCMakeAnnotations":true,"additionalAnnotations":["packs/extra.cmake"],"expandEnvVariable":true}}
 ```
 
 `fleurdelys.enableCMakeAnnotations` (**Enable CMake Annotations**) is a boolean.
@@ -25,13 +25,31 @@ Each message is a full snapshot: omitted fields restore CLI defaults, explicit
 `false` disables CMake and `[]` clears external packs. No disabling CLI flag is
 needed because the CLI default is false and clients can explicitly override it.
 
+`fleurdelys.expandEnvVariable` (**Expand Environment Variables**) is a boolean,
+disabled by default. `--expand-env-variable` enables its startup default.
+Initialization options and configuration changes use the same full-snapshot
+rules as annotation settings: `false` disables expansion and omission restores
+the CLI default. Configuration changes revalidate open documents immediately.
+
+When enabled, `$ENV{NAME}` in ordinary `set()` values and include paths resolves
+against the language server process's current environment. This also supports
+paths composed through ordinary `${VARIABLE}` references. Missing environment
+variables remain unresolved; empty values expand to an empty string. Escaped
+references and bracket arguments remain literal. Other namespaced references,
+such as `$CACHE{NAME}`, are not expanded. Expansion is bounded like ordinary
+variable expansion. Environment names supplement `$ENV{...}` completions;
+values are not displayed in completion documentation or hover. Annotation
+descriptions remain available when expansion is disabled. No environment
+variables are modified. For remote editors, the environment belongs to the
+host or container running the server.
+
 One configuration snapshot applies to the server. Relative editor paths resolve
 against the longest containing workspace folder for each analyzed source, also
 in a multi-root workspace. Absolute paths work outside workspace folders;
 relative editor paths outside them warn and are skipped. For different settings
 per folder, a future extension must run one server per folder. Folder roots are
 captured at initialization; restart when the folder list changes.
-Paths support spaces, Unicode and Windows drives. There is no globbing, directory
+Annotation configuration paths support spaces, Unicode and Windows drives. There is no globbing, directory
 scanning, environment expansion, tilde expansion or VS Code variable substitution.
 Normalized paths are deduplicated, keeping their first position. Includes still
 resolve relative to their containing file and retain existing variable expansion.

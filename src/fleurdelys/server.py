@@ -1,4 +1,5 @@
 import re
+import os
 from pathlib import Path
 
 from pygls.lsp.server import LanguageServer
@@ -206,6 +207,9 @@ def completions(ls: CMakeLanguageServer, params: CompletionParams):
         namespace = variable.group(1)
         definitions = result.variable_namespaces.get(namespace, {}) if namespace else result.definitions
         descriptions = {name: d.description for name, d in definitions.items()}
+        if namespace == "ENV" and isinstance(ls, CMakeLanguageServer) and ls.analysis_options(doc.uri).expand_env_variable:
+            for name in os.environ:
+                descriptions.setdefault(name, None)
         return CompletionList(
             is_incomplete=False,
             items=[
