@@ -2,7 +2,7 @@
   "name": "fleurdelys",
   "displayName": "Fleurdelys",
   "description": "CMake language support for scripting and DSLs, powered by Fleurdelys.",
-  "version": "0.1.0",
+  "version": "2026.1120.0",
   "publisher": "MikuAuahDark",
   "license": "UNLICENSED",
   "private": true,
@@ -42,5 +42,5 @@
   },
   "dependencies": { "vscode-languageclient": "9.0.1" },
   "overrides": { "@vscode/vsce": { "minimatch": "^11.0.1" } },
-  "devDependencies": { "@types/node": "^22.0.0", "@types/vscode": "1.85.0", "@vscode/vsce": "4.1.1", "@vscode/test-electron": "3.1.0", "esbuild": "0.28.2", "typescript": "~5.9.3", "vscode-textmate": "^9.2.0", "vscode-oniguruma": "^2.0.1" }
+  "devDependencies": { "@types/node": "^22.0.0", "@types/vscode": "1.85.0", "@vscode/vsce": "4.1.1", "@vscode/test-electron": "3.1.0", "esbuild": "0.28.2", "smol-toml": "^1.9.1", "typescript": "~5.9.3", "vscode-textmate": "^9.2.0", "vscode-oniguruma": "^2.0.1" }
 }

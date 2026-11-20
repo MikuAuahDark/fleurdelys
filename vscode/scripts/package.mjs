@@ -2,6 +2,7 @@ import { cp, mkdir, readFile, readdir, rm, writeFile, access } from 'node:fs/pro
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { syncVersion } from './version.mjs';
 
 const extensionRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = path.resolve(extensionRoot, '..');
@@ -14,6 +15,7 @@ const argIndex = process.argv.indexOf('--target');
 if (argIndex !== -1 && process.argv[argIndex + 1] !== target) {
   throw new Error(`Build on the target OS and architecture. This host builds ${target}.`);
 }
+const version = await syncVersion(repoRoot, extensionRoot);
 function run(command, args, cwd = repoRoot) {
   const result = spawnSync(command, args, { cwd, stdio: 'inherit', windowsHide: true, shell: false });
   if (result.error) throw result.error;
@@ -81,9 +83,8 @@ const clientLicense = await readFile(path.join(extensionRoot, 'node_modules', 'v
 notices.push(`vscode-languageclient and Microsoft LSP libraries\n${clientLicense}`);
 await writeFile(path.join(extensionRoot, 'THIRD_PARTY_NOTICES.txt'), notices.join('\n\n========================================\n\n'));
 run(process.execPath, ['--test', 'test/server.test.mjs'], extensionRoot);
-const manifest = JSON.parse(await readFile(path.join(extensionRoot, 'package.json'), 'utf8'));
 await mkdir(path.join(repoRoot, 'dist'), { recursive: true });
-const artifact = path.join(repoRoot, 'dist', `fleurdelys-${manifest.version}-${target}.vsix`);
+const artifact = path.join(repoRoot, 'dist', `fleurdelys-${version}-${target}.vsix`);
 run(process.execPath, [path.join(extensionRoot, 'node_modules', '@vscode', 'vsce', 'vsce'), 'package',
   '--target', target, '--no-dependencies', '--allow-missing-repository', '--skip-license', '--out', artifact], extensionRoot);
 console.log(`Packaged ${artifact}`);
