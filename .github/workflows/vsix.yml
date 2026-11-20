@@ -21,9 +21,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-22.04
+          - runner: ubuntu-26.04
             target: linux-x64
-          - runner: windows-2022
+          - runner: windows-2025-vs2026
             target: win32-x64
           - runner: macos-15-intel
             target: darwin-x64

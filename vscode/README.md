@@ -7,6 +7,10 @@ The platform-specific VSIX bundles the server; Python is not required to use it.
 Install the VSIX using **Extensions: Install from VSIX...**, then open a
 `CMakeLists.txt` or `.cmake` file. The language mode is **CMake**.
 
+Automatic suggestions are enabled in strings for CMake because the grammar
+classifies unfinished command names (such as `me`) as unquoted strings.
+An explicit `editor.quickSuggestions` setting can override this default.
+
 Settings:
 
 - `fleurdelys.enableCMakeAnnotations`: enable project/build-system annotations (default false).

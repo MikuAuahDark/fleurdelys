@@ -16,6 +16,14 @@ test('upstream grammar tokenizes CMake variables, custom commands and bracket co
     loadGrammar: async () => parseRawGrammar(await readFile('../CMake.tmLanguage.json', 'utf8'), 'CMake.tmLanguage.json'),
   });
   const grammar = await registry.loadGrammar('source.cmake');
+  // Partial command names inherit the upstream grammar's unquoted string scope.
+  // Automatic completion must therefore be enabled in strings for CMake.
+  const partial = grammar.tokenizeLine('me', INITIAL);
+  assert.ok(partial.tokens.some(token => token.scopes.includes('string.unquoted.cmake')));
+  const conditional = grammar.tokenizeLine('if', INITIAL);
+  assert.ok(conditional.tokens.some(token => token.scopes.includes('keyword.control.conditional.cmake')));
+  const manifest = JSON.parse(await readFile('package.json', 'utf8'));
+  assert.equal(manifest.contributes.configurationDefaults['[cmake]']['editor.quickSuggestions'].strings, 'on');
   const variable = grammar.tokenizeLine('message("${FOO}")', INITIAL);
   assert.ok(variable.tokens.some(token => token.scopes.includes('variable.other.cmake')));
   const custom = grammar.tokenizeLine('my_custom_command(value)', INITIAL);
