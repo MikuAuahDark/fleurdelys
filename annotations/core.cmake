@@ -13,11 +13,19 @@
 
 ## Execute commands conditionally. Conditions support predicates, comparisons and boolean operators.
 ## [Documentation](https://cmake.org/cmake/help/v4.4/command/if.html)
-## function(if [?condition]...)
+## function(if <?condition>...)
+
+## Execute commands conditionally. Conditions support predicates, comparisons and boolean operators.
+## [Documentation](https://cmake.org/cmake/help/v4.4/command/if.html)
+## function(if <:variable>)
 
 ## Test another condition in an if block.
 ## [Documentation](https://cmake.org/cmake/help/v4.4/command/elseif.html)
-## function(elseif [?condition]...)
+## function(elseif <?condition>...)
+
+## Test another condition in an if block.
+## [Documentation](https://cmake.org/cmake/help/v4.4/command/elseif.html)
+## function(elseif <:variable>)
 
 ## Execute the fallback branch of an if block. The optional condition repeats the opening condition.
 ## [Documentation](https://cmake.org/cmake/help/v4.4/command/else.html)
